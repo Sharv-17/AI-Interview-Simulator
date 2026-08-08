@@ -21,6 +21,8 @@ The platform supports both voice-based and text-based responses and evaluates an
 - 💬 Personalized feedback
 - 📈 Communication analysis
 - 📝 Final interview performance report
+- ⏱️ Timed interview questions
+- 🔒 Basic interview integrity monitoring
 
 ## Planned Architecture
 

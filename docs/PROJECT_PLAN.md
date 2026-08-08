@@ -56,6 +56,13 @@ There is a need for an intelligent interview simulator that can dynamically adju
 - Answer quality scoring.
 - Personalized feedback.
 
+### Interview Integrity
+
+- Per-question time limit.
+- Copy and paste event detection.
+- Automatic answer submission when the timer expires.
+- Integrity indicators included in the interview report.
+
 ### Communication Analysis
 
 - Speaking pace analysis.
@@ -118,6 +125,8 @@ The initial working version will focus on:
 - Basic communication analysis.
 - Interview scoring.
 - Final performance report.
+- Per-question timer.
+- Copy/paste detection.
 
 The MVP will prioritize functionality and reliability over advanced UI and analytics.
 
