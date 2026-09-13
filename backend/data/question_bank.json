@@ -1,0 +1,172 @@
+[
+  {
+    "question_id": "python-001",
+    "question_text": "What is the difference between a list and a tuple in Python?",
+    "topic": "Python",
+    "subtopic": "Data Types",
+    "difficulty": "easy",
+    "question_type": "conceptual",
+    "competency": "Python Fundamentals",
+    "tags": ["python", "data-types", "collections"]
+  },
+  {
+    "question_id": "python-005",
+    "question_text": "What is a Python generator and how does it differ from a list?",
+    "topic": "Python",
+    "subtopic": "Iterators",
+    "difficulty": "easy",
+    "question_type": "conceptual",
+    "competency": "Python Fundamentals",
+    "tags": ["python", "generators", "iterators"]
+  },
+  {
+    "question_id": "python-002",
+    "question_text": "Explain how Python's garbage collection works.",
+    "topic": "Python",
+    "subtopic": "Memory Management",
+    "difficulty": "medium",
+    "question_type": "conceptual",
+    "competency": "Python Internals",
+    "tags": ["python", "memory-management"]
+  },
+  {
+    "question_id": "python-004",
+    "question_text": "Write a function to flatten a nested list in Python.",
+    "topic": "Python",
+    "subtopic": "Recursion",
+    "difficulty": "medium",
+    "question_type": "coding",
+    "competency": "Python Fundamentals",
+    "tags": ["python", "recursion", "lists"]
+  },
+  {
+    "question_id": "python-003",
+    "question_text": "Implement a decorator that caches function results (memoization).",
+    "topic": "Python",
+    "subtopic": "Decorators",
+    "difficulty": "hard",
+    "question_type": "coding",
+    "competency": "Python Advanced",
+    "tags": ["python", "decorators", "caching"]
+  },
+  {
+    "question_id": "ds-001",
+    "question_text": "What is the difference between an array and a linked list?",
+    "topic": "Data Structures",
+    "subtopic": "Linear Structures",
+    "difficulty": "easy",
+    "question_type": "conceptual",
+    "competency": "Data Structures Fundamentals",
+    "tags": ["data-structures", "arrays", "linked-lists"]
+  },
+  {
+    "question_id": "ds-002",
+    "question_text": "Explain how a hash table resolves collisions.",
+    "topic": "Data Structures",
+    "subtopic": "Hash Tables",
+    "difficulty": "medium",
+    "question_type": "conceptual",
+    "competency": "Data Structures",
+    "tags": ["data-structures", "hash-tables"]
+  },
+  {
+    "question_id": "ds-003",
+    "question_text": "Implement an LRU cache using a doubly linked list and a hash map.",
+    "topic": "Data Structures",
+    "subtopic": "Design",
+    "difficulty": "hard",
+    "question_type": "coding",
+    "competency": "Data Structures Advanced",
+    "tags": ["data-structures", "lru-cache", "design"]
+  },
+  {
+    "question_id": "algo-001",
+    "question_text": "What is the time complexity of binary search and why?",
+    "topic": "Algorithms",
+    "subtopic": "Searching",
+    "difficulty": "easy",
+    "question_type": "conceptual",
+    "competency": "Algorithm Fundamentals",
+    "tags": ["algorithms", "searching", "complexity"]
+  },
+  {
+    "question_id": "algo-002",
+    "question_text": "Implement merge sort and explain its time complexity.",
+    "topic": "Algorithms",
+    "subtopic": "Sorting",
+    "difficulty": "medium",
+    "question_type": "coding",
+    "competency": "Algorithms",
+    "tags": ["algorithms", "sorting", "recursion"]
+  },
+  {
+    "question_id": "algo-003",
+    "question_text": "Given a weighted graph, implement Dijkstra's shortest path algorithm.",
+    "topic": "Algorithms",
+    "subtopic": "Graphs",
+    "difficulty": "hard",
+    "question_type": "coding",
+    "competency": "Algorithms Advanced",
+    "tags": ["algorithms", "graphs", "shortest-path"]
+  },
+  {
+    "question_id": "oop-001",
+    "question_text": "What are the four pillars of Object-Oriented Programming?",
+    "topic": "OOP",
+    "subtopic": "Fundamentals",
+    "difficulty": "easy",
+    "question_type": "conceptual",
+    "competency": "OOP Fundamentals",
+    "tags": ["oop", "fundamentals"]
+  },
+  {
+    "question_id": "oop-002",
+    "question_text": "Explain the difference between method overloading and method overriding.",
+    "topic": "OOP",
+    "subtopic": "Polymorphism",
+    "difficulty": "medium",
+    "question_type": "conceptual",
+    "competency": "OOP",
+    "tags": ["oop", "polymorphism"]
+  },
+  {
+    "question_id": "oop-003",
+    "question_text": "Explain the SOLID principles with an example of a violation and its fix.",
+    "topic": "OOP",
+    "subtopic": "Design Principles",
+    "difficulty": "hard",
+    "question_type": "conceptual",
+    "competency": "OOP Advanced",
+    "tags": ["oop", "design-principles", "solid"]
+  },
+  {
+    "question_id": "sql-001",
+    "question_text": "What is the difference between INNER JOIN and LEFT JOIN?",
+    "topic": "SQL",
+    "subtopic": "Joins",
+    "difficulty": "easy",
+    "question_type": "conceptual",
+    "competency": "SQL Fundamentals",
+    "tags": ["sql", "joins"]
+  },
+  {
+    "question_id": "sql-002",
+    "question_text": "Write a SQL query to find the second-highest salary in an Employees table.",
+    "topic": "SQL",
+    "subtopic": "Queries",
+    "difficulty": "medium",
+    "question_type": "coding",
+    "competency": "SQL",
+    "tags": ["sql", "queries", "aggregation"]
+  },
+  {
+    "question_id": "sql-003",
+    "question_text": "Explain database normalization and describe 1NF, 2NF, and 3NF.",
+    "topic": "SQL",
+    "subtopic": "Database Design",
+    "difficulty": "hard",
+    "question_type": "conceptual",
+    "competency": "SQL Advanced",
+    "tags": ["sql", "normalization", "database-design"]
+  }
+]

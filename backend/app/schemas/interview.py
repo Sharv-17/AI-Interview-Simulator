@@ -5,6 +5,7 @@ define what a client can send us and what shape we promise to send back.
 """
 
 from enum import Enum
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -49,4 +50,5 @@ class InterviewResponse(BaseModel):
     difficulty: DifficultyLevel
     question_count: int
     current_question: int
+    current_question_id: Optional[str] = None
     status: InterviewStatus

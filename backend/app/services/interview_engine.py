@@ -8,9 +8,10 @@ calls create_interview() / get_interview().
 """
 
 import uuid
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from app.schemas.interview import DifficultyLevel, InterviewResponse, InterviewStatus
+from app.services.question_selector import select_next_question
 
 
 class InterviewSession:
@@ -23,6 +24,28 @@ class InterviewSession:
         self.question_count: int = question_count
         self.current_question: int = 1
         self.status: InterviewStatus = InterviewStatus.ACTIVE
+        self.asked_question_ids: List[str] = []
+        self.current_question_id: Optional[str] = None
+
+        self._select_initial_question()
+
+    def _select_initial_question(self) -> None:
+        """Pick the first question from the question bank, if one fits.
+
+        No suitable question (e.g. an unknown topic) is not an error at
+        this stage: the interview still starts, current_question_id is
+        simply left as None. The selector never substitutes an
+        unrelated topic, so this only happens when the bank genuinely
+        has nothing for the requested topic.
+        """
+        question = select_next_question(
+            topic=self.topic,
+            difficulty=self.difficulty,
+            asked_question_ids=self.asked_question_ids,
+        )
+        if question is not None:
+            self.current_question_id = question.question_id
+            self.asked_question_ids.append(question.question_id)
 
     def to_response(self) -> InterviewResponse:
         """Convert internal session state into the API response shape."""
@@ -32,6 +55,7 @@ class InterviewSession:
             difficulty=self.difficulty,
             question_count=self.question_count,
             current_question=self.current_question,
+            current_question_id=self.current_question_id,
             status=self.status,
         )
 
