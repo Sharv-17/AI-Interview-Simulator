@@ -31,6 +31,10 @@ class Question(BaseModel):
     question_type: QuestionType
     competency: str
     tags: List[str] = Field(default_factory=list)
+    reference_answer: Optional[str] = Field(
+        default=None,
+        description="Optional model/reference answer for this question. Not used for grading at this stage.",
+    )
 
     @field_validator("question_id", "question_text", "topic", "competency")
     @classmethod
