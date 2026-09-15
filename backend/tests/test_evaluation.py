@@ -5,13 +5,42 @@ from pydantic import ValidationError
 from app.main import app
 from app.repositories.question_repository import question_repository
 from app.schemas.evaluation import CodingEvaluation, ConceptualEvaluation, ExecutionStatus
-from app.schemas.question import QuestionType
-from app.services.coding_evaluator import CodeCheck, evaluate_coding_answer
+from app.schemas.interview import DifficultyLevel, InterviewStatus
+from app.schemas.question import Question, QuestionType
+from app.services.coding_evaluator import TEST_CASE_REGISTRY, CodeCheck, evaluate_coding_answer
 from app.services.conceptual_evaluator import evaluate_conceptual_answer
 from app.services.evaluation_errors import EvaluationError
+from app.services.interview_engine import interview_engine
 from app.services.llm_client import LLMClient, LLMConceptualScores, MockLLMClient
 
 client = TestClient(app)
+
+# The live question bank (converted from data/question_bank.csv) currently
+# has no "coding"-type questions -- the source CSV had no column
+# distinguishing conceptual from coding questions, so every row converted
+# as "conceptual" (see scripts/convert_question_bank.py's docstring).
+# Coding-evaluator tests below therefore use manually constructed Question
+# objects rather than looking one up from the live bank.
+
+
+def _real_conceptual_question() -> Question:
+    """Return a real question from the live bank for conceptual-path tests."""
+    questions = question_repository.get_by_topic("Algorithms")
+    assert questions, "Expected at least one 'Algorithms' question in the bank"
+    return questions[0]
+
+
+def _sample_coding_question() -> Question:
+    """A hand-built coding-type question; not sourced from the live bank (see note above)."""
+    return Question(
+        question_id="sample-coding-001",
+        question_text="Write a function to flatten a nested list.",
+        topic="Algorithms",
+        difficulty=DifficultyLevel.MEDIUM,
+        question_type=QuestionType.CODING,
+        competency="Algorithms",
+        tags=["algorithms"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -21,7 +50,7 @@ client = TestClient(app)
 
 def test_conceptual_evaluation_schema_accepts_valid_scores():
     evaluation = ConceptualEvaluation(
-        question_id="python-001",
+        question_id="sample-001",
         overall_score=8.0,
         technical_score=8,
         relevance_score=9,
@@ -36,7 +65,7 @@ def test_conceptual_evaluation_schema_accepts_valid_scores():
 def test_conceptual_evaluation_rejects_out_of_range_score():
     with pytest.raises(ValidationError):
         ConceptualEvaluation(
-            question_id="python-001",
+            question_id="sample-001",
             overall_score=8.0,
             technical_score=11,  # out of 0-10 range
             relevance_score=9,
@@ -50,7 +79,7 @@ def test_conceptual_evaluation_rejects_out_of_range_score():
 def test_coding_evaluation_rejects_inconsistent_test_counts():
     with pytest.raises(ValidationError):
         CodingEvaluation(
-            question_id="python-004",
+            question_id="sample-coding-001",
             overall_score=5.0,
             tests_total=5,
             tests_passed=2,
@@ -84,12 +113,11 @@ def test_mock_llm_client_returns_deterministic_results():
 
 
 def test_conceptual_evaluator_computes_overall_score_as_mean():
-    question = question_repository.get_by_id("python-001")
-    assert question is not None
+    question = _real_conceptual_question()
 
     evaluation = evaluate_conceptual_answer(
         question=question,
-        answer_text="A list is mutable and ordered; a tuple is immutable and ordered.",
+        answer_text="Binary search runs in O(log n) time because it halves the search space each step.",
         llm_client=MockLLMClient(),
     )
 
@@ -111,8 +139,7 @@ class _BrokenLLMClient(LLMClient):
 
 
 def test_conceptual_evaluator_wraps_llm_failures_safely():
-    question = question_repository.get_by_id("python-001")
-    assert question is not None
+    question = _real_conceptual_question()
 
     with pytest.raises(EvaluationError):
         evaluate_conceptual_answer(
@@ -128,8 +155,7 @@ def test_conceptual_evaluator_wraps_llm_failures_safely():
 
 
 def test_coding_evaluator_scores_based_on_test_cases_passed():
-    question = question_repository.get_by_id("python-004")
-    assert question is not None
+    question = _sample_coding_question()
 
     test_cases = [
         CodeCheck(name="defines a function", keyword="def"),
@@ -149,8 +175,7 @@ def test_coding_evaluator_scores_based_on_test_cases_passed():
 
 
 def test_coding_evaluator_with_no_test_cases_is_skipped_not_faked():
-    question = question_repository.get_by_id("python-004")
-    assert question is not None
+    question = _sample_coding_question()
 
     evaluation = evaluate_coding_answer(question=question, answer_text="def flatten(x): pass", test_cases=[])
 
@@ -167,7 +192,7 @@ def test_coding_evaluator_with_no_test_cases_is_skipped_not_faked():
 def test_answer_submission_succeeds_for_a_conceptual_question():
     start_response = client.post(
         "/interview/start",
-        json={"topic": "Python", "difficulty": "easy", "question_count": 3},
+        json={"topic": "Algorithms", "difficulty": "easy", "question_count": 3},
     )
     interview = start_response.json()
     question_id = interview["current_question_id"]
@@ -177,7 +202,7 @@ def test_answer_submission_succeeds_for_a_conceptual_question():
         f"/interview/{interview['interview_id']}/answer",
         json={
             "question_id": question_id,
-            "answer_text": "A list is mutable and ordered; a tuple is immutable and ordered.",
+            "answer_text": "Binary search runs in O(log n) time because it halves the search space each step.",
         },
     )
 
@@ -188,21 +213,40 @@ def test_answer_submission_succeeds_for_a_conceptual_question():
     assert 0 <= body["evaluation"]["overall_score"] <= 10
 
 
-def test_answer_submission_succeeds_for_a_coding_question():
-    # topic=Python, difficulty=hard deterministically selects python-003 (coding, hard).
+def test_answer_submission_succeeds_for_a_coding_question(monkeypatch):
+    """
+    The live bank currently has no coding-type questions (see module note
+    at the top of this file), so this test injects one directly into a
+    running interview session to exercise the coding path end-to-end.
+    """
+    coding_question = _sample_coding_question()
+
+    monkeypatch.setattr(
+        question_repository,
+        "get_by_id",
+        lambda qid: coding_question if qid == coding_question.question_id else None,
+    )
+    monkeypatch.setitem(
+        TEST_CASE_REGISTRY,
+        coding_question.question_id,
+        [CodeCheck(name="defines a function", keyword="def")],
+    )
+
     start_response = client.post(
         "/interview/start",
-        json={"topic": "Python", "difficulty": "hard", "question_count": 3},
+        json={"topic": "Algorithms", "difficulty": "medium", "question_count": 3},
     )
     interview = start_response.json()
-    question_id = interview["current_question_id"]
-    assert question_id == "python-003"
+
+    session = interview_engine.get_interview(interview["interview_id"])
+    session.current_question_id = coding_question.question_id
+    session.asked_question_ids.append(coding_question.question_id)
 
     answer_response = client.post(
         f"/interview/{interview['interview_id']}/answer",
         json={
-            "question_id": question_id,
-            "answer_text": "def memoize(fn):\n    cache = {}\n    return fn",
+            "question_id": coding_question.question_id,
+            "answer_text": "def flatten(items):\n    return items",
         },
     )
 
@@ -216,20 +260,18 @@ def test_answer_submission_succeeds_for_a_coding_question():
 def test_answer_submission_for_unknown_interview_returns_404():
     response = client.post(
         "/interview/does-not-exist/answer",
-        json={"question_id": "python-001", "answer_text": "Some answer."},
+        json={"question_id": "sample-001", "answer_text": "Some answer."},
     )
     assert response.status_code == 404
 
 
 def test_answer_submission_for_inactive_interview_is_rejected():
-    from app.schemas.interview import InterviewStatus
-    from app.services.interview_engine import interview_engine
-
     start_response = client.post(
         "/interview/start",
-        json={"topic": "Python", "difficulty": "easy", "question_count": 3},
+        json={"topic": "Algorithms", "difficulty": "easy", "question_count": 3},
     )
     interview = start_response.json()
+    assert interview["current_question_id"] is not None
 
     session = interview_engine.get_interview(interview["interview_id"])
     session.status = InterviewStatus.COMPLETED
@@ -244,7 +286,7 @@ def test_answer_submission_for_inactive_interview_is_rejected():
 def test_answer_submission_for_unknown_question_is_rejected():
     start_response = client.post(
         "/interview/start",
-        json={"topic": "Python", "difficulty": "easy", "question_count": 3},
+        json={"topic": "Algorithms", "difficulty": "easy", "question_count": 3},
     )
     interview = start_response.json()
 
@@ -258,17 +300,17 @@ def test_answer_submission_for_unknown_question_is_rejected():
 def test_answer_cannot_be_submitted_for_a_question_that_was_not_asked():
     start_response = client.post(
         "/interview/start",
-        json={"topic": "Python", "difficulty": "easy", "question_count": 3},
+        json={"topic": "Algorithms", "difficulty": "easy", "question_count": 3},
     )
     interview = start_response.json()
 
-    # python-002 is a real question in the bank, but not this interview's current one.
-    other_question_id = "python-002"
-    assert other_question_id != interview["current_question_id"]
+    other_question = next(
+        q for q in question_repository.get_by_topic("Algorithms") if q.question_id != interview["current_question_id"]
+    )
 
     response = client.post(
         f"/interview/{interview['interview_id']}/answer",
-        json={"question_id": other_question_id, "answer_text": "Some answer."},
+        json={"question_id": other_question.question_id, "answer_text": "Some answer."},
     )
     assert response.status_code == 400
 

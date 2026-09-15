@@ -8,9 +8,13 @@ calls create_interview() / get_interview().
 """
 
 import uuid
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
+from app.repositories.question_repository import question_repository
+from app.schemas.evaluation import CodingEvaluation, ConceptualEvaluation
 from app.schemas.interview import DifficultyLevel, InterviewResponse, InterviewStatus
+from app.services.answer_evaluator import evaluate_answer
+from app.services.evaluation_errors import InterviewNotActiveError, QuestionNotCurrentError
 from app.services.question_selector import select_next_question
 
 
@@ -26,6 +30,7 @@ class InterviewSession:
         self.status: InterviewStatus = InterviewStatus.ACTIVE
         self.asked_question_ids: List[str] = []
         self.current_question_id: Optional[str] = None
+        self.answers: List[dict] = []
 
         self._select_initial_question()
 
@@ -46,6 +51,39 @@ class InterviewSession:
         if question is not None:
             self.current_question_id = question.question_id
             self.asked_question_ids.append(question.question_id)
+
+    def submit_answer(self, question_id: str, answer_text: str) -> Union[ConceptualEvaluation, CodingEvaluation]:
+        """Evaluate a candidate's answer to this interview's current question.
+
+        Only the interview's current question may be answered — this
+        deliberately rejects both unknown question IDs and previously
+        asked-but-no-longer-current ones with the same error, since
+        from the interview's point of view they're the same situation:
+        "not the question I'm currently asking".
+        """
+        if self.status != InterviewStatus.ACTIVE:
+            raise InterviewNotActiveError()
+
+        if question_id != self.current_question_id:
+            raise QuestionNotCurrentError()
+
+        question = question_repository.get_by_id(question_id)
+        if question is None:
+            # Shouldn't happen — current_question_id always comes from the
+            # repository — but never trust stored IDs blindly.
+            raise QuestionNotCurrentError()
+
+        evaluation = evaluate_answer(question=question, answer_text=answer_text)
+
+        self.answers.append(
+            {
+                "question_id": question_id,
+                "answer_text": answer_text,
+                "evaluation": evaluation,
+            }
+        )
+
+        return evaluation
 
     def to_response(self) -> InterviewResponse:
         """Convert internal session state into the API response shape."""

@@ -38,19 +38,21 @@ class CodeCheck(BaseModel):
     name: str
     keyword: str
 
+TEST_CASE_REGISTRY: Dict[str, List[CodeCheck]] = {}
+"""
+Currently empty: the live question bank (converted from
+data/question_bank.csv) has no "coding"-type questions — the source
+CSV had no column distinguishing conceptual from coding questions, so
+every row converted as "conceptual" (see scripts/convert_question_bank.py).
+When coding questions are added to the bank, add their test cases here,
+keyed by question_id, e.g.:
 
-# Temporary, hand-written test cases for the coding questions in the
-# current seed bank. See module docstring.
-TEST_CASE_REGISTRY: Dict[str, List[CodeCheck]] = {
-    "python-003": [
-        CodeCheck(name="defines a function", keyword="def"),
-        CodeCheck(name="mentions caching", keyword="cache"),
-    ],
-    "python-004": [
-        CodeCheck(name="defines a function", keyword="def"),
-        CodeCheck(name="iterates over the structure", keyword="for"),
-    ],
-}
+    TEST_CASE_REGISTRY = {
+        "some-coding-question-id": [
+            CodeCheck(name="defines a function", keyword="def"),
+        ],
+    }
+"""
 
 
 def get_test_cases_for_question(question_id: str) -> List[CodeCheck]:
