@@ -5,8 +5,11 @@ via Pydantic, delegates to the Interview Engine, and returns the result.
 No session/business logic lives here.
 """
 
+from typing import Dict
+
 from fastapi import APIRouter, HTTPException
 
+from app.schemas.competency import CompetencyState
 from app.schemas.evaluation import AnswerSubmitRequest, AnswerSubmitResponse
 from app.schemas.interview import InterviewResponse, InterviewStartRequest
 from app.services.evaluation_errors import (
@@ -48,7 +51,7 @@ def submit_answer(interview_id: str, request: AnswerSubmitRequest) -> AnswerSubm
         raise HTTPException(status_code=404, detail="Interview not found")
 
     try:
-        evaluation = session.submit_answer(request.question_id, request.answer_text)
+        evaluation, competency_update = session.submit_answer(request.question_id, request.answer_text)
     except InterviewNotActiveError:
         raise HTTPException(status_code=409, detail="Interview is not active")
     except QuestionNotCurrentError:
@@ -65,4 +68,19 @@ def submit_answer(interview_id: str, request: AnswerSubmitRequest) -> AnswerSubm
         interview_id=session.interview_id,
         question_id=request.question_id,
         evaluation=evaluation,
+        competency_update=competency_update,
     )
+
+
+@router.get("/{interview_id}/competency", response_model=Dict[str, CompetencyState])
+def get_interview_competency(interview_id: str) -> Dict[str, CompetencyState]:
+    """Return this interview's current estimated competency state.
+
+    Read-only: there is no endpoint to set competency state directly.
+    Only this interview's own competency state is exposed — competency
+    state is never shared across interviews.
+    """
+    session = interview_engine.get_interview(interview_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    return session.competency_state.get_all()

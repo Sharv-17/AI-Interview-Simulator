@@ -11,7 +11,7 @@ from enum import Enum
 from typing import List, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
-
+from app.schemas.competency import CompetencyUpdate
 from app.schemas.question import QuestionType
 
 SCORE_MIN = 0
@@ -96,3 +96,4 @@ class AnswerSubmitResponse(BaseModel):
     interview_id: str
     question_id: str
     evaluation: Union[ConceptualEvaluation, CodingEvaluation]
+    competency_update: CompetencyUpdate

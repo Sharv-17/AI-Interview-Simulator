@@ -8,12 +8,14 @@ calls create_interview() / get_interview().
 """
 
 import uuid
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from app.repositories.question_repository import question_repository
+from app.schemas.competency import CompetencyUpdate
 from app.schemas.evaluation import CodingEvaluation, ConceptualEvaluation
 from app.schemas.interview import DifficultyLevel, InterviewResponse, InterviewStatus
 from app.services.answer_evaluator import evaluate_answer
+from app.services.competency_state import CompetencyStateStore
 from app.services.evaluation_errors import InterviewNotActiveError, QuestionNotCurrentError
 from app.services.question_selector import select_next_question
 
@@ -31,6 +33,7 @@ class InterviewSession:
         self.asked_question_ids: List[str] = []
         self.current_question_id: Optional[str] = None
         self.answers: List[dict] = []
+        self.competency_state = CompetencyStateStore()
 
         self._select_initial_question()
 
@@ -52,7 +55,9 @@ class InterviewSession:
             self.current_question_id = question.question_id
             self.asked_question_ids.append(question.question_id)
 
-    def submit_answer(self, question_id: str, answer_text: str) -> Union[ConceptualEvaluation, CodingEvaluation]:
+    def submit_answer(
+        self, question_id: str, answer_text: str
+    ) -> Tuple[Union[ConceptualEvaluation, CodingEvaluation], CompetencyUpdate]:
         """Evaluate a candidate's answer to this interview's current question.
 
         Only the interview's current question may be answered — this
@@ -60,6 +65,14 @@ class InterviewSession:
         asked-but-no-longer-current ones with the same error, since
         from the interview's point of view they're the same situation:
         "not the question I'm currently asking".
+
+        After evaluation, the answer's overall_score also updates this
+        interview's estimated competency state for the question's
+        competency (see app/services/competency_state.py). This is a
+        separate concept from the evaluation itself: evaluation asks
+        "what quality was this answer?"; competency state asks "what
+        does this suggest about the candidate's estimated ability?" —
+        the competency update never changes the evaluation's score.
         """
         if self.status != InterviewStatus.ACTIVE:
             raise InterviewNotActiveError()
@@ -74,16 +87,20 @@ class InterviewSession:
             raise QuestionNotCurrentError()
 
         evaluation = evaluate_answer(question=question, answer_text=answer_text)
+        competency_update = self.competency_state.update_from_answer(
+            question=question, overall_score=evaluation.overall_score
+        )
 
         self.answers.append(
             {
                 "question_id": question_id,
                 "answer_text": answer_text,
                 "evaluation": evaluation,
+                "competency_update": competency_update,
             }
         )
 
-        return evaluation
+        return evaluation, competency_update
 
     def to_response(self) -> InterviewResponse:
         """Convert internal session state into the API response shape."""

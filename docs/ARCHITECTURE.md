@@ -425,3 +425,52 @@ The architecture should allow future additions such as:
 -Company-specific interviews
 -Advanced communication analysis
 -Advanced interview integrity mechanisms
+
+## 13. Implementation Status: Competency State (Stage 3.5)
+
+The sections above describe the eventual, aspirational architecture.
+This section documents what is actually implemented as of Stage 3.5.
+
+After Stage 3.4's answer evaluation, each interview now maintains an
+**estimated competency state** per competency encountered, in
+`app/services/competency_state.py`. This is the first piece of the
+planned adaptive pipeline:
+theta -> H(theta) -> IDI -> DifficultyFit -> QScore
+
+
+**Only theta (competency state estimation) is implemented.** Shannon
+entropy H(theta), IDI, DifficultyFit, and the final QScore are **not**
+implemented yet, and no question selection currently uses competency
+state — question retrieval still works exactly as in Stage 3.3.
+
+**What theta is:** for each competency, `theta` is an *estimated*
+competency level in `[0.0, 1.0]` inferred from observed answer
+performance — not an objective measure of the candidate's true
+ability. It starts at `theta_initial = 0.5` (neutral) the first time a
+competency is encountered (lazy initialization; competencies are never
+pre-populated).
+
+**Update formula**, applied after every evaluated answer for that
+answer's competency:
+
+theta_new = (1 - alpha) * theta_old + alpha * S
+
+
+where `S` is the answer's Stage 3.4 `overall_score` normalized from
+`[0,10]` to `[0,1]` (`S = overall_score / 10`, clamped), and
+`alpha = 0.15` is a fixed research design constant — it is not
+configurable and must not be changed without updating this document.
+
+EMA is used so recent performance shifts the estimate while still
+being smoothed by prior answers, rather than each new answer either
+being ignored or completely overwriting the running estimate.
+
+The competency touched is chosen from the answered question's
+metadata, preferring: explicit `competency` field → `subtopic` →
+`topic` → a safe fallback label, so a question missing some metadata
+never crashes the interview.
+
+Competency state belongs to a single interview session (never shared
+globally). It is returned alongside each answer's evaluation under
+`competency_update`, and can be read in full via
+`GET /interview/{interview_id}/competency`.
