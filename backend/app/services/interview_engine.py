@@ -8,16 +8,20 @@ calls create_interview() / get_interview().
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple, Union
 
+from app.config import DEFAULT_QUESTION_TIME_LIMIT_SECONDS
 from app.repositories.question_repository import question_repository
 from app.schemas.competency import CompetencyUpdate
 from app.schemas.evaluation import CodingEvaluation, ConceptualEvaluation
+from app.schemas.integrity import IntegrityEvent, SubmissionReason, TimingMetadata
 from app.schemas.interview import DifficultyLevel, InterviewResponse, InterviewStatus
 from app.services.answer_evaluator import evaluate_answer
 from app.services.competency_state import CompetencyStateStore
 from app.services.evaluation_errors import InterviewNotActiveError, QuestionNotCurrentError
 from app.services.question_selector import select_next_question
+from app.services.timer_service import check_timeout
 
 
 class InterviewSession:
@@ -32,6 +36,8 @@ class InterviewSession:
         self.status: InterviewStatus = InterviewStatus.ACTIVE
         self.asked_question_ids: List[str] = []
         self.current_question_id: Optional[str] = None
+        self.question_started_at: Optional[datetime] = None
+        self.question_time_limit_seconds: Optional[int] = None
         self.answers: List[dict] = []
         self.competency_state = CompetencyStateStore()
 
@@ -45,6 +51,10 @@ class InterviewSession:
         simply left as None. The selector never substitutes an
         unrelated topic, so this only happens when the bank genuinely
         has nothing for the requested topic.
+
+        When a question is selected, its timer starts immediately:
+        question_started_at is recorded once here and is never reset,
+        including by later answer submissions (see submit_answer).
         """
         question = select_next_question(
             topic=self.topic,
@@ -54,10 +64,16 @@ class InterviewSession:
         if question is not None:
             self.current_question_id = question.question_id
             self.asked_question_ids.append(question.question_id)
+            self.question_started_at = datetime.now(timezone.utc)
+            self.question_time_limit_seconds = DEFAULT_QUESTION_TIME_LIMIT_SECONDS
 
     def submit_answer(
-        self, question_id: str, answer_text: str
-    ) -> Tuple[Union[ConceptualEvaluation, CodingEvaluation], CompetencyUpdate]:
+        self,
+        question_id: str,
+        answer_text: str,
+        submission_reason: SubmissionReason = SubmissionReason.CANDIDATE_SUBMITTED,
+        integrity_events: Optional[List[IntegrityEvent]] = None,
+    ) -> Tuple[Union[ConceptualEvaluation, CodingEvaluation], CompetencyUpdate, TimingMetadata]:
         """Evaluate a candidate's answer to this interview's current question.
 
         Only the interview's current question may be answered — this
@@ -66,13 +82,26 @@ class InterviewSession:
         from the interview's point of view they're the same situation:
         "not the question I'm currently asking".
 
+        Timing: timed_out is computed server-side from
+        question_started_at (set once, never reset) — never from the
+        client's submission_reason, which is recorded as metadata only.
+        A late submission is still evaluated and stored normally; it is
+        simply flagged timed_out=True for later audit rather than
+        rejected outright, since this stage does not implement
+        automatic question progression.
+
+        Integrity events (copy/paste) are stored as reported, verbatim,
+        alongside the timing metadata. They never affect whether the
+        answer is accepted, evaluated, or scored.
+
         After evaluation, the answer's overall_score also updates this
         interview's estimated competency state for the question's
         competency (see app/services/competency_state.py). This is a
         separate concept from the evaluation itself: evaluation asks
         "what quality was this answer?"; competency state asks "what
         does this suggest about the candidate's estimated ability?" —
-        the competency update never changes the evaluation's score.
+        neither the timing nor the competency update ever changes the
+        evaluation's score.
         """
         if self.status != InterviewStatus.ACTIVE:
             raise InterviewNotActiveError()
@@ -86,6 +115,22 @@ class InterviewSession:
             # repository — but never trust stored IDs blindly.
             raise QuestionNotCurrentError()
 
+        submitted_at = datetime.now(timezone.utc)
+        timed_out, elapsed = check_timeout(
+            question_started_at=self.question_started_at,
+            time_limit_seconds=self.question_time_limit_seconds,
+            at=submitted_at,
+        )
+        timing = TimingMetadata(
+            question_started_at=self.question_started_at,
+            submitted_at=submitted_at,
+            time_limit_seconds=self.question_time_limit_seconds,
+            elapsed_seconds=elapsed,
+            timed_out=timed_out,
+            submission_reason=submission_reason,
+            integrity_events=integrity_events or [],
+        )
+
         evaluation = evaluate_answer(question=question, answer_text=answer_text)
         competency_update = self.competency_state.update_from_answer(
             question=question, overall_score=evaluation.overall_score
@@ -97,10 +142,11 @@ class InterviewSession:
                 "answer_text": answer_text,
                 "evaluation": evaluation,
                 "competency_update": competency_update,
+                "timing": timing,
             }
         )
 
-        return evaluation, competency_update
+        return evaluation, competency_update, timing
 
     def to_response(self) -> InterviewResponse:
         """Convert internal session state into the API response shape."""

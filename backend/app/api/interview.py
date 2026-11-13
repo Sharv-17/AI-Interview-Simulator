@@ -50,8 +50,13 @@ def submit_answer(interview_id: str, request: AnswerSubmitRequest) -> AnswerSubm
     if session is None:
         raise HTTPException(status_code=404, detail="Interview not found")
 
-    try:
-        evaluation, competency_update = session.submit_answer(request.question_id, request.answer_text)
+       try:
+        evaluation, competency_update, timing = session.submit_answer(
+            request.question_id,
+            request.answer_text,
+            submission_reason=request.submission_reason,
+            integrity_events=request.integrity_events,
+        )
     except InterviewNotActiveError:
         raise HTTPException(status_code=409, detail="Interview is not active")
     except QuestionNotCurrentError:
@@ -69,8 +74,8 @@ def submit_answer(interview_id: str, request: AnswerSubmitRequest) -> AnswerSubm
         question_id=request.question_id,
         evaluation=evaluation,
         competency_update=competency_update,
+        timing=timing,
     )
-
 
 @router.get("/{interview_id}/competency", response_model=Dict[str, CompetencyState])
 def get_interview_competency(interview_id: str) -> Dict[str, CompetencyState]:

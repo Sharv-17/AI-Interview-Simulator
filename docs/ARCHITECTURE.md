@@ -474,3 +474,43 @@ Competency state belongs to a single interview session (never shared
 globally). It is returned alongside each answer's evaluation under
 `competency_update`, and can be read in full via
 `GET /interview/{interview_id}/competency`.
+
+
+## 14. Implementation Status: Timer and Interview Integrity (Stage 3.6)
+
+**Default time limit:** every question gets a 90-second time budget
+(`DEFAULT_QUESTION_TIME_LIMIT_SECONDS` in `app/config.py`) — a single
+constant, not hard-coded per file.
+
+**IMPORTANT ARCHITECTURE LIMITATION:** the backend cannot observe a
+browser's visible countdown, its clipboard, tab switches, or window
+focus. A future frontend is responsible for rendering the countdown
+and for reporting copy/paste events; the backend only validates and
+timestamps what it's told.
+
+**Server-side timing is authoritative.** `question_started_at` is
+recorded once (in UTC) the moment a question becomes current, and is
+never reset — not even by resubmitting. Every answer submission
+computes `elapsed_seconds` and `timed_out` itself, from its own
+`question_started_at` and the current server time, regardless of what
+the client claims via `submission_reason`. This is what prevents a
+candidate from extending their time by submitting more than once.
+
+**Automatic submission** at 90 seconds is a frontend responsibility:
+the backend cannot push a submission from the server, so when a
+browser's own countdown reaches zero, it is expected to call the
+existing `POST /interview/{id}/answer` endpoint itself with
+`submission_reason: "timeout"`. The backend still independently
+verifies whether a timeout actually occurred; a late submission is
+evaluated and stored as normal, just flagged `timed_out: true` for
+audit, since this stage does not implement automatically ending or
+advancing past a question.
+
+**Copy/paste integrity events** (`event_type: "copy" | "paste"`) are
+client-reported and stored verbatim as metadata alongside each answer
+— no clipboard content is ever collected. Their presence is an
+indicator for later human review, never an automatic accusation:
+submitting a copy/paste event never blocks, penalizes, or otherwise
+changes an answer's evaluation or competency update. Advanced
+anti-cheating monitoring (tab-switch detection, window-focus tracking,
+etc.) is explicitly out of scope for this MVP.

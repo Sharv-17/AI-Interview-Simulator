@@ -13,6 +13,7 @@ from typing import List, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.competency import CompetencyUpdate
 from app.schemas.question import QuestionType
+from app.schemas.integrity import IntegrityEvent, SubmissionReason, TimingMetadata
 
 SCORE_MIN = 0
 SCORE_MAX = 10
@@ -81,6 +82,15 @@ class AnswerSubmitRequest(BaseModel):
 
     question_id: str = Field(..., description="Must match the interview's current question")
     answer_text: str
+    submission_reason: SubmissionReason = Field(
+        default=SubmissionReason.CANDIDATE_SUBMITTED,
+        description="Why this answer is being submitted. Metadata only — the backend "
+        "independently determines the authoritative timed_out flag; see TimingMetadata.",
+    )
+    integrity_events: List[IntegrityEvent] = Field(
+        default_factory=list,
+        description="Client-reported copy/paste events for the current question, if any.",
+    )
 
     @field_validator("question_id", "answer_text")
     @classmethod
@@ -97,3 +107,4 @@ class AnswerSubmitResponse(BaseModel):
     question_id: str
     evaluation: Union[ConceptualEvaluation, CodingEvaluation]
     competency_update: CompetencyUpdate
+    timing: TimingMetadata
