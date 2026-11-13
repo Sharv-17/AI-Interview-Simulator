@@ -514,3 +514,14 @@ submitting a copy/paste event never blocks, penalizes, or otherwise
 changes an answer's evaluation or competency update. Advanced
 anti-cheating monitoring (tab-switch detection, window-focus tracking,
 etc.) is explicitly out of scope for this MVP.
+
+
+## 15. Implementation Status: Adaptive Math Foundations
+
+`app/services/adaptive_metrics.py` provides pure, deterministic functions
+for H(theta), IDI, DifficultyFit and QScore. They are **not** connected to
+question selection or any API route, and nothing here is empirically
+validated. Apart from theta (Stage 3.5), IDI, DifficultyFit and QScore are
+clearly labeled *proposed baselines*. Full definitions, assumptions,
+limitations and open questions are in `docs/MATHEMATICAL_SPEC.md`.
+Adaptive question selection is still **not** implemented.
