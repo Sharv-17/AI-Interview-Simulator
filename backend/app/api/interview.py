@@ -50,7 +50,7 @@ def submit_answer(interview_id: str, request: AnswerSubmitRequest) -> AnswerSubm
     if session is None:
         raise HTTPException(status_code=404, detail="Interview not found")
 
-       try:
+    try:
         evaluation, competency_update, timing = session.submit_answer(
             request.question_id,
             request.answer_text,
@@ -76,6 +76,7 @@ def submit_answer(interview_id: str, request: AnswerSubmitRequest) -> AnswerSubm
         competency_update=competency_update,
         timing=timing,
     )
+
 
 @router.get("/{interview_id}/competency", response_model=Dict[str, CompetencyState])
 def get_interview_competency(interview_id: str) -> Dict[str, CompetencyState]:
