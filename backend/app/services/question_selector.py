@@ -10,7 +10,9 @@ behavior is reproducible for testing and research evaluation:
 
 1. Only questions matching the requested topic are considered — the
    selector never silently substitutes an unrelated topic.
-2. Already-asked questions (by ID) are excluded.
+2. Already-asked questions (by ID) are excluded, and so are questions that
+   are not cleared for candidates (Question.is_servable: review_status
+   `needs_manual_review` / `requires_coding_evaluation`).
 3. Remaining candidates are ranked by `baseline_score` (topic +
    difficulty match); ties keep the question bank's original order.
 4. If no candidate remains, `None` is returned. Callers decide how to
@@ -36,7 +38,7 @@ def select_next_question(
     candidates = [
         question
         for question in question_repository.get_by_topic(topic)
-        if question.question_id not in asked
+        if question.question_id not in asked and question.is_servable
     ]
     if not candidates:
         return None

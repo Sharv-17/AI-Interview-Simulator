@@ -17,13 +17,26 @@ from app.services.evaluation_errors import UnsupportedQuestionTypeError
 from app.services.llm_client import LLMClient
 
 
+# Free-text answers judged against a rubric. scenario / system_design /
+# debugging are answered in prose, so they use the same rubric evaluator as
+# conceptual questions (the resulting evaluation is still reported as
+# "conceptual", i.e. rubric-based). Coding is different: it needs deterministic
+# test execution.
+_RUBRIC_EVALUATED_TYPES = {
+    QuestionType.CONCEPTUAL,
+    QuestionType.SCENARIO,
+    QuestionType.SYSTEM_DESIGN,
+    QuestionType.DEBUGGING,
+}
+
+
 def evaluate_answer(
     question: Question,
     answer_text: str,
     llm_client: Optional[LLMClient] = None,
 ) -> Union[ConceptualEvaluation, CodingEvaluation]:
     """Evaluate a candidate's answer using the evaluator for its question type."""
-    if question.question_type == QuestionType.CONCEPTUAL:
+    if question.question_type in _RUBRIC_EVALUATED_TYPES:
         return evaluate_conceptual_answer(question=question, answer_text=answer_text, llm_client=llm_client)
 
     if question.question_type == QuestionType.CODING:

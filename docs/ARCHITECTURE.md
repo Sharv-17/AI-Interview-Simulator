@@ -594,4 +594,37 @@ stored with the answer; it never affects scoring.
   limit in production. There is no rate limiting.
 - On timeout the transcription thread cannot be killed; it finishes in the background.
 - Transcription quality has not been measured; reviewing the text is mandatory.
-- `GET /questions` (the list endpoint) still returns `reference_answer`.
+
+
+## 17. Question Bank v2 (827 questions)
+
+The bank was replaced with `Software_Questions_FINAL_merged.csv` (copied to
+`backend/data/question_bank.csv`, converted to `question_bank.json` by
+`backend/scripts/convert_question_bank.py`). Re-run the converter after every CSV edit;
+a test fails if the JSON is out of date.
+
+**Fields.** 20 categories (`topic`; also used as `competency`, so competency state is
+tracked per category), `subcategory` (`subtopic`), 3 difficulties, 5 question types
+(`conceptual`, `scenario`, `system_design`, `debugging`, `coding`), plus
+`expected_concepts`, `evaluation_criteria`, `estimated_time_seconds`, `review_status`,
+`source`, `legacy_category`, `previous_id`. IDs look like `SWQ-0001`.
+
+**What a candidate is asked.** Only `reviewed` questions are selected (707 of 827).
+`needs_manual_review` (100) and `requires_coding_evaluation` (20) stay in the bank, can be
+looked up by ID, but are never selected. Coding questions are excluded because there is no
+code-execution sandbox: they would always score 0.
+
+**Evaluation.** `scenario`, `system_design` and `debugging` answers are free text and use the
+same rubric evaluator as `conceptual` (still the placeholder `MockLLMClient`).
+
+**Answer key.** `reference_answer`, `expected_concepts` and `evaluation_criteria` are never
+returned by any question endpoint (`QuestionPublic`).
+
+**Known limitations.**
+- `estimated_time_seconds` is informational: the server timer is still a fixed 90 seconds,
+  so longer questions (scenario 240s, system design up to 900s) are flagged `timed_out`.
+- Reviewed *hard* questions are scarce (0 for Networking and Software Design & Practices,
+  1-4 for most categories). When they run out the selector falls back to other
+  difficulties in the same topic.
+- `difficulty` labels, `estimated_time_seconds` and the generated questions
+  (`source: generated_*`) have not been empirically validated.

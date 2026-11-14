@@ -53,9 +53,9 @@ def test_a_valid_question_can_be_selected():
 
 
 def test_selected_question_belongs_to_requested_topic():
-    question = select_next_question(topic="Database and SQL", difficulty=DifficultyLevel.EASY)
+    question = select_next_question(topic="Databases", difficulty=DifficultyLevel.EASY)
     assert question is not None
-    assert question.topic == "Database and SQL"
+    assert question.topic == "Databases"
 
 
 def test_selected_question_has_requested_difficulty_when_available():

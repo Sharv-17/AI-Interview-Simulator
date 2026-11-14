@@ -14,31 +14,37 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.repositories.question_repository import question_repository
 from app.schemas.interview import DifficultyLevel
-from app.schemas.question import Question, QuestionPublic
+from app.schemas.question import QuestionPublic
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 
 
-@router.get("", response_model=List[Question])
+@router.get("", response_model=List[QuestionPublic])
 def list_questions(
     topic: Optional[str] = Query(default=None, description="Filter by topic, e.g. 'Python'"),
     difficulty: Optional[DifficultyLevel] = Query(default=None, description="Filter by difficulty"),
-) -> List[Question]:
-    """List questions in the bank, optionally filtered by topic and/or difficulty."""
+) -> List[QuestionPublic]:
+    """List questions in the bank, optionally filtered by topic and/or difficulty.
+
+    Returns QuestionPublic, which omits the answer key (reference_answer,
+    expected_concepts, evaluation_criteria).
+    """
     if topic and difficulty:
-        return question_repository.get_by_topic_and_difficulty(topic, difficulty)
-    if topic:
-        return question_repository.get_by_topic(topic)
-    if difficulty:
-        return question_repository.get_by_difficulty(difficulty)
-    return question_repository.get_all()
+        questions = question_repository.get_by_topic_and_difficulty(topic, difficulty)
+    elif topic:
+        questions = question_repository.get_by_topic(topic)
+    elif difficulty:
+        questions = question_repository.get_by_difficulty(difficulty)
+    else:
+        questions = question_repository.get_all()
+    return [QuestionPublic.model_validate(q, from_attributes=True) for q in questions]
 
 
 @router.get("/{question_id}", response_model=QuestionPublic)
 def get_question(question_id: str) -> QuestionPublic:
     """Return one question for display to a candidate.
 
-    Uses QuestionPublic, which omits reference_answer (the answer key).
+    Uses QuestionPublic, which omits the answer key.
     """
     question = question_repository.get_by_id(question_id)
     if question is None:
