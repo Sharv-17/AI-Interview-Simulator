@@ -10,11 +10,11 @@ places being able to decide "what question is next".
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.repositories.question_repository import question_repository
 from app.schemas.interview import DifficultyLevel
-from app.schemas.question import Question
+from app.schemas.question import Question, QuestionPublic
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 
@@ -32,3 +32,15 @@ def list_questions(
     if difficulty:
         return question_repository.get_by_difficulty(difficulty)
     return question_repository.get_all()
+
+
+@router.get("/{question_id}", response_model=QuestionPublic)
+def get_question(question_id: str) -> QuestionPublic:
+    """Return one question for display to a candidate.
+
+    Uses QuestionPublic, which omits reference_answer (the answer key).
+    """
+    question = question_repository.get_by_id(question_id)
+    if question is None:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return QuestionPublic.model_validate(question, from_attributes=True)

@@ -525,3 +525,73 @@ validated. Apart from theta (Stage 3.5), IDI, DifficultyFit and QScore are
 clearly labeled *proposed baselines*. Full definitions, assumptions,
 limitations and open questions are in `docs/MATHEMATICAL_SPEC.md`.
 Adaptive question selection is still **not** implemented.
+
+
+## 16. Implementation Status: Voice Answers and Interview Progression (Stage 3.8, backend only)
+
+**Scope.** This stage is backend only. **No frontend exists in the repository**, so
+recording in the browser, the transcript review screen and the countdown are not built.
+The backend is ready for a frontend to use.
+
+**Flow.** The browser records audio (MediaRecorder) and uploads it; the backend
+transcribes it and returns text; the candidate reviews/edits that text; the edited
+text is submitted through the *existing* `POST /interview/{id}/answer` endpoint.
+
+    audio -> POST /interview/{id}/transcribe -> transcript (no state change)
+          -> candidate reviews/edits
+          -> POST /interview/{id}/answer  (answer_source: "voice")
+          -> existing evaluation -> existing competency update
+          -> POST /interview/{id}/next
+
+**`POST /interview/{interview_id}/transcribe`** (multipart: `question_id`, `audio`)
+returns `{interview_id, question_id, transcript, duration_seconds}`. It only
+transcribes: it never evaluates, stores an answer or updates competency. It checks
+that the interview is active and that `question_id` is the current, unanswered
+question. Errors return `{"detail": {"code", "message"}}`:
+`empty_audio` 400, `audio_too_large` 413, `unsupported_audio_format` 415,
+`unreadable_audio` / `audio_too_long` / `no_speech_detected` 422,
+`transcription_failed` 502, `transcription_unavailable` 503,
+`transcription_timeout` 504.
+
+**Supported formats** (identified from file contents, not filename or MIME type):
+WebM, Ogg, MP4/M4A, WAV, MP3. Chrome/Firefox usually record WebM; Safari records MP4.
+
+**Transcription** is isolated behind `TranscriptionClient`
+(`services/transcription_service.py`). The one real provider is local
+`faster-whisper` (`services/whisper_provider.py`), which is optional
+(`requirements-whisper.txt`) and downloads its model on first use. The application
+contains no fake provider, so it cannot return a made-up transcript; tests use fakes.
+
+**Privacy.** Audio is held in memory and in a temporary directory deleted after each
+call; it is never stored permanently and never logged. Candidate audio stays on the
+server (no external service).
+
+**Configuration** (optional, see `backend/.env.example`): `MAX_AUDIO_UPLOAD_BYTES`
+(10 MB), `MAX_RECORDING_SECONDS` (60), `TRANSCRIPTION_TIMEOUT_SECONDS` (60),
+`WHISPER_MODEL_SIZE` (`base.en`). Load with `uvicorn ... --env-file .env`.
+
+**Duplicate answers.** A question can be answered once; a second submission returns
+409, so evaluation and the competency update happen exactly once per question.
+
+**Progression.** `POST /interview/{id}/next` requires the current question to be
+answered, then selects the next question with the *existing baseline selector*
+(topic + difficulty, no repeats; **not** QScore: adaptive selection is not connected)
+and starts a fresh 90-second timer. The interview completes after `question_count`
+answers, or earlier if the topic has no unasked questions left.
+`GET /questions/{question_id}` returns question text for display and omits
+`reference_answer`.
+
+**Answer source.** `answer_source` ("text" | "voice") is client-reported metadata
+stored with the answer; it never affects scoring.
+
+**Limitations.**
+- Voice time counts toward the 90-second question timer (recording, upload,
+  transcription and editing); late answers are flagged `timed_out`, not rejected.
+- Conceptual answers are still scored by the placeholder `MockLLMClient`
+  (length-based), for voice and text alike. A real evaluator is not integrated.
+- Size is enforced from `Content-Length` and while streaming; the framework may spool
+  an upload without `Content-Length` to temporary storage first. Use a proxy body
+  limit in production. There is no rate limiting.
+- On timeout the transcription thread cannot be killed; it finishes in the background.
+- Transcription quality has not been measured; reviewing the text is mandatory.
+- `GET /questions` (the list endpoint) still returns `reference_answer`.

@@ -9,17 +9,22 @@ calls create_interview() / get_interview().
 
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from app.config import DEFAULT_QUESTION_TIME_LIMIT_SECONDS
 from app.repositories.question_repository import question_repository
 from app.schemas.competency import CompetencyUpdate
-from app.schemas.evaluation import CodingEvaluation, ConceptualEvaluation
+from app.schemas.evaluation import AnswerSource, CodingEvaluation, ConceptualEvaluation
 from app.schemas.integrity import IntegrityEvent, SubmissionReason, TimingMetadata
 from app.schemas.interview import DifficultyLevel, InterviewResponse, InterviewStatus
 from app.services.answer_evaluator import evaluate_answer
 from app.services.competency_state import CompetencyStateStore
-from app.services.evaluation_errors import InterviewNotActiveError, QuestionNotCurrentError
+from app.services.evaluation_errors import (
+    AnswerAlreadySubmittedError,
+    InterviewNotActiveError,
+    QuestionNotAnsweredError,
+    QuestionNotCurrentError,
+)
 from app.services.question_selector import select_next_question
 from app.services.timer_service import check_timeout
 
@@ -39,6 +44,7 @@ class InterviewSession:
         self.question_started_at: Optional[datetime] = None
         self.question_time_limit_seconds: Optional[int] = None
         self.answers: List[dict] = []
+        self.answered_question_ids: Set[str] = set()
         self.competency_state = CompetencyStateStore()
 
         self._select_initial_question()
@@ -62,10 +68,66 @@ class InterviewSession:
             asked_question_ids=self.asked_question_ids,
         )
         if question is not None:
-            self.current_question_id = question.question_id
-            self.asked_question_ids.append(question.question_id)
-            self.question_started_at = datetime.now(timezone.utc)
-            self.question_time_limit_seconds = DEFAULT_QUESTION_TIME_LIMIT_SECONDS
+            self._set_current_question(question.question_id)
+
+    def _set_current_question(self, question_id: str) -> None:
+        """Make a question current and start its timer (recorded once, never reset)."""
+        self.current_question_id = question_id
+        self.asked_question_ids.append(question_id)
+        self.question_started_at = datetime.now(timezone.utc)
+        self.question_time_limit_seconds = DEFAULT_QUESTION_TIME_LIMIT_SECONDS
+
+    def ensure_accepting_answer(self, question_id: str) -> None:
+        """Raise unless `question_id` is the active, still-unanswered current question.
+
+        Shared by answer submission and audio transcription so a recording can
+        only ever be attributed to the question the interview is asking now.
+        """
+        if self.status != InterviewStatus.ACTIVE:
+            raise InterviewNotActiveError()
+
+        if question_id != self.current_question_id:
+            raise QuestionNotCurrentError()
+
+        if question_id in self.answered_question_ids:
+            raise AnswerAlreadySubmittedError()
+
+    def advance_to_next_question(self) -> None:
+        """Move to the next question, or complete the interview.
+
+        The current question must be answered first. The next question comes
+        from the existing baseline selector (topic + difficulty, no repeats) --
+        NOT from QScore; adaptive selection is not connected yet. The interview
+        completes when question_count questions have been answered, or earlier
+        if the bank has no unasked question left for the topic.
+        """
+        if self.status != InterviewStatus.ACTIVE:
+            raise InterviewNotActiveError()
+
+        if self.current_question_id is None or self.current_question_id not in self.answered_question_ids:
+            raise QuestionNotAnsweredError()
+
+        if self.current_question >= self.question_count:
+            self._complete()
+            return
+
+        next_question = select_next_question(
+            topic=self.topic,
+            difficulty=self.difficulty,
+            asked_question_ids=self.asked_question_ids,
+        )
+        if next_question is None:
+            self._complete()
+            return
+
+        self.current_question += 1
+        self._set_current_question(next_question.question_id)
+
+    def _complete(self) -> None:
+        self.status = InterviewStatus.COMPLETED
+        self.current_question_id = None
+        self.question_started_at = None
+        self.question_time_limit_seconds = None
 
     def submit_answer(
         self,
@@ -73,6 +135,7 @@ class InterviewSession:
         answer_text: str,
         submission_reason: SubmissionReason = SubmissionReason.CANDIDATE_SUBMITTED,
         integrity_events: Optional[List[IntegrityEvent]] = None,
+        answer_source: AnswerSource = AnswerSource.TEXT,
     ) -> Tuple[Union[ConceptualEvaluation, CodingEvaluation], CompetencyUpdate, TimingMetadata]:
         """Evaluate a candidate's answer to this interview's current question.
 
@@ -90,6 +153,12 @@ class InterviewSession:
         rejected outright, since this stage does not implement
         automatic question progression.
 
+        Each question can be answered only once: a second submission raises
+        AnswerAlreadySubmittedError, so evaluation and the competency update
+        happen exactly once per question. answer_source ("text" | "voice") is
+        client-reported metadata stored with the answer; it never changes
+        evaluation or scoring.
+
         Integrity events (copy/paste) are stored as reported, verbatim,
         alongside the timing metadata. They never affect whether the
         answer is accepted, evaluated, or scored.
@@ -103,11 +172,7 @@ class InterviewSession:
         neither the timing nor the competency update ever changes the
         evaluation's score.
         """
-        if self.status != InterviewStatus.ACTIVE:
-            raise InterviewNotActiveError()
-
-        if question_id != self.current_question_id:
-            raise QuestionNotCurrentError()
+        self.ensure_accepting_answer(question_id)
 
         question = question_repository.get_by_id(question_id)
         if question is None:
@@ -140,11 +205,15 @@ class InterviewSession:
             {
                 "question_id": question_id,
                 "answer_text": answer_text,
+                "answer_source": answer_source,
                 "evaluation": evaluation,
                 "competency_update": competency_update,
                 "timing": timing,
             }
         )
+        # Marked only after a successful evaluation, so a failed evaluation
+        # (e.g. 502) can be retried, while a completed one can never be repeated.
+        self.answered_question_ids.add(question_id)
 
         return evaluation, competency_update, timing
 

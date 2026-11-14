@@ -87,24 +87,28 @@ def test_timeout_metadata_is_stored_correctly():
 
 
 def test_timer_is_not_reset_by_resubmitting():
-    """A candidate cannot extend their time by submitting more than once --
-    question_started_at is set once and elapsed_seconds only ever grows."""
+    """A candidate cannot extend their time by submitting more than once.
+
+    Since Stage 3.8 a second submission for the same question is rejected (409),
+    and in every case question_started_at is set once and never reset.
+    """
     interview = _start_algorithms_interview()
     session = interview_engine.get_interview(interview["interview_id"])
     original_start = session.question_started_at
 
-    client.post(
+    first_response = client.post(
         f"/interview/{interview['interview_id']}/answer",
         json={"question_id": interview["current_question_id"], "answer_text": "First submission."},
     )
+    assert first_response.status_code == 200
     assert session.question_started_at == original_start
 
     second_response = client.post(
         f"/interview/{interview['interview_id']}/answer",
         json={"question_id": interview["current_question_id"], "answer_text": "Second submission."},
     )
+    assert second_response.status_code == 409
     assert session.question_started_at == original_start
-    assert second_response.status_code == 200
 
 
 # ---------------------------------------------------------------------------

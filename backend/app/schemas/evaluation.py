@@ -19,6 +19,13 @@ SCORE_MIN = 0
 SCORE_MAX = 10
 
 
+class AnswerSource(str, Enum):
+    """How the submitted answer text was produced (client-reported metadata)."""
+
+    TEXT = "text"
+    VOICE = "voice"
+
+
 class ExecutionStatus(str, Enum):
     """Outcome of attempting to evaluate a coding answer."""
 
@@ -82,6 +89,10 @@ class AnswerSubmitRequest(BaseModel):
 
     question_id: str = Field(..., description="Must match the interview's current question")
     answer_text: str
+    answer_source: AnswerSource = Field(
+        default=AnswerSource.TEXT,
+        description="'voice' if the text came from a reviewed voice transcript. Metadata only.",
+    )
     submission_reason: SubmissionReason = Field(
         default=SubmissionReason.CANDIDATE_SUBMITTED,
         description="Why this answer is being submitted. Metadata only — the backend "
@@ -108,3 +119,4 @@ class AnswerSubmitResponse(BaseModel):
     evaluation: Union[ConceptualEvaluation, CodingEvaluation]
     competency_update: CompetencyUpdate
     timing: TimingMetadata
+    answer_source: AnswerSource = AnswerSource.TEXT

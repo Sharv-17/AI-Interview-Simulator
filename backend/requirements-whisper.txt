@@ -1,0 +1,5 @@
+# Optional: local speech-to-text for voice answers.
+# Not needed to run the API or the test suite; /transcribe returns a clear
+# "transcription_unavailable" error until this is installed.
+#   pip install -r requirements-whisper.txt
+faster-whisper>=1.0

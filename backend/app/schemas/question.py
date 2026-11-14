@@ -8,7 +8,7 @@ the same set of values.
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.schemas.interview import DifficultyLevel
 
@@ -42,3 +42,23 @@ class Question(BaseModel):
         if not value.strip():
             raise ValueError("value must not be empty")
         return value.strip()
+
+
+
+class QuestionPublic(BaseModel):
+    """What a candidate may see about a question.
+
+    Deliberately has NO reference_answer: that is the answer key and must never
+    be sent to the person being interviewed.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    question_id: str
+    question_text: str
+    topic: str
+    subtopic: Optional[str] = None
+    difficulty: DifficultyLevel
+    question_type: QuestionType
+    competency: str
+    tags: List[str] = Field(default_factory=list)

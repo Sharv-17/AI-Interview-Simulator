@@ -24,3 +24,12 @@ class UnsupportedQuestionTypeError(Exception):
 
 class EvaluationError(Exception):
     """Raised when an evaluator (LLM or coding) fails or returns malformed output."""
+    
+
+
+class AnswerAlreadySubmittedError(Exception):
+    """Raised when the current question has already been answered."""
+
+
+class QuestionNotAnsweredError(Exception):
+    """Raised when moving on before the current question has been answered."""
