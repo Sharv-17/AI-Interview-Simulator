@@ -1,0 +1,41 @@
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend (if added)
+node_modules/
+dist/
+.vite/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Archives
+*.zip
+*.tar
+*.tar.gz
