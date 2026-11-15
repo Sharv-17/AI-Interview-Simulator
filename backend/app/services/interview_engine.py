@@ -95,9 +95,10 @@ class InterviewSession:
     def advance_to_next_question(self) -> None:
         """Move to the next question, or complete the interview.
 
-        The current question must be answered first. The next question comes
-        from the existing baseline selector (topic + difficulty, no repeats) --
-        NOT from QScore; adaptive selection is not connected yet. The interview
+        The current question must be answered first. The next question is
+        chosen by app/services/question_selector.py, which ranks eligible
+        questions by QScore using this interview's competency state (the
+        requested difficulty only decides the first question). The interview
         completes when question_count questions have been answered, or earlier
         if the bank has no unasked question left for the topic.
         """
@@ -115,6 +116,7 @@ class InterviewSession:
             topic=self.topic,
             difficulty=self.difficulty,
             asked_question_ids=self.asked_question_ids,
+            competency_states=self.competency_state.get_all(),
         )
         if next_question is None:
             self._complete()

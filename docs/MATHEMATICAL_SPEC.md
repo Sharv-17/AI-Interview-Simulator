@@ -7,8 +7,7 @@ Code: `backend/app/services/adaptive_metrics.py` (pure functions) and
 `backend/tests/test_adaptive_metrics.py`.
 
 **None of these formulas have been empirically validated.** Apart from θ,
-they are implementation hypotheses. They are not yet used by question
-selection or any API route.
+they are implementation hypotheses.They are used by the question selector (section 6) but are not validated experimentally.
 
 ## Status of each component
 
@@ -113,6 +112,56 @@ QScore = w_idi·IDI + w_fit·DifficultyFit,   w_idi = w_fit = 0.5
 `H = 0.81128`, `IDI = 0.81128`, `Fit = 1 − 0.5 = 0.5`,
 `QScore = 0.5·0.81128 + 0.5·0.5 = 0.65564`.
 
+## 6. How the selector uses these metrics (Phase 1)
+
+Code: `backend/app/services/question_selector.py`. Nothing here changes the formulas above.
+
+**Eligible candidates.** Same topic, not yet asked in this interview, and servable
+(`review_status` is `reviewed`). `needs_manual_review` and `requires_coding_evaluation`
+questions are never eligible.
+
+**Cold start (first question).** With no competency history the interview's requested
+`difficulty` picks the question (`baseline_score`: topic match, then difficulty match;
+ties keep bank order). θ keeps its research prior of 0.5.
+
+**Adaptive mode (every later question).** For each eligible question *q* with competency
+*c* and difficulty value *d* (easy .25 / medium .5 / hard .75):
+
+    θ_c    = current estimate for c  (0.5 if c has no history; invalid values are ignored -> 0.5)
+    IDI    = H(θ_c)
+    Fit    = 1 − |θ_c − d|
+    QScore = 0.5·IDI + 0.5·Fit
+
+Candidates are ranked by QScore (descending), ties broken by `question_id` (ascending), so
+the result is deterministic and independent of storage order. There is no randomness.
+
+**What each metric does to the choice.**
+- *DifficultyFit* chooses the difficulty: it is highest when *d* is closest to θ, so a
+  rising θ moves the interview from medium toward hard, and a falling θ toward easy.
+- *IDI = H(θ)* is a property of the competency, not of the question. It only changes the
+  ranking when eligible questions belong to *different* competencies: a less-certain
+  competency (θ near 0.5) outranks a nearly-certain one (θ near 0 or 1) at equal
+  fit. In an interview that covers a single competency IDI is the same for every
+  candidate and does not affect the order. (Today competency = category, and an
+  interview covers one category, so IDI has no effect on the order there.)
+- The requested interview difficulty affects only the first question.
+
+**Anti-streak guard.** If the last 3 questions had the same difficulty and a different
+difficulty is available, only those are considered. So the selector never asks more than 3
+same-difficulty questions in a row while an alternative exists. The limit of 3 is an
+implementation assumption. It is a hard constraint, not a QScore effect: it can override
+the QScore ranking.
+
+**Fallbacks.** No history -> baseline. Competency with no state -> prior 0.5. Invalid θ ->
+prior 0.5 (warning logged). Nothing scorable -> baseline ordering. No eligible question
+-> none (the interview completes).
+
+**Observed behaviour (8-question simulation, System Design, requested medium, placeholder
+evaluator).** A candidate scoring 3/10 each time had difficulty sequence M M M E M M M E
+(θ 0.47 -> 0.354). A candidate scoring 8/10 each time had M M M H H H M H (θ 0.545 -> 0.718).
+Because α = 0.15 makes θ move slowly, adaptation within a short interview is gradual,
+and some switches (the lone E above) come from the anti-streak guard rather than from θ.
+
 ## Open questions for the research design
 
 1. The intended definition of IDI (it should likely use evidence count and/or
@@ -121,3 +170,5 @@ QScore = w_idi·IDI + w_fit·DifficultyFit,   w_idi = w_fit = 0.5
 3. How QScore weights should be chosen (and validated).
 4. Whether a Bernoulli view of θ is adequate, or competency should be
    represented as a distribution (e.g. Beta) so entropy is principled.
+5. Whether a competency should be a category (current) or a subcategory. A finer
+   competency would let IDI influence question order within one interview.   

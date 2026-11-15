@@ -3,8 +3,8 @@
     theta -> H(theta) -> IDI -> DifficultyFit -> QScore
 
 Every function here is PURE and DETERMINISTIC: no randomness, no I/O, no
-database, no LLM, no mutation of competency state. Nothing in this module
-is wired into question selection or any API route yet.
+database, no LLM, no mutation of competency state.
+app/services/question_selector.py calls these functions to rank candidate questions.
 
 READ THIS BEFORE TRUSTING ANY NUMBER (status of each definition)
 ----------------------------------------------------------------
@@ -247,7 +247,7 @@ def score_candidate(
 
 
 def rank_by_qscore(scored: Sequence[Tuple[str, Optional[float]]]) -> List[str]:
-    """Order question IDs by QScore, highest first. Pure; not wired anywhere.
+    """Order question IDs by QScore, highest first. Pure. Used by question_selector.
 
     Ties (equal after rounding to 12 decimals, to absorb float noise) are
     broken by question_id ascending, so the same input always gives the same

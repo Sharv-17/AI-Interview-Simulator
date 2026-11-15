@@ -43,7 +43,8 @@ def test_question_endpoint_returns_text_without_the_answer_key():
     body = response.json()
     assert body["question_id"] == interview["current_question_id"]
     assert body["question_text"]
-    assert "reference_answer" not in body
+    for answer_key_field in ("reference_answer", "expected_concepts", "evaluation_criteria"):
+     assert answer_key_field not in body
 
 
 def test_question_endpoint_unknown_id_returns_404():
