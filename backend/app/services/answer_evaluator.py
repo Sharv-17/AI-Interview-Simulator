@@ -34,6 +34,7 @@ def evaluate_answer(
     question: Question,
     answer_text: str,
     llm_client: Optional[LLMClient] = None,
+    language: Optional[str] = None,
 ) -> Union[ConceptualEvaluation, CodingEvaluation]:
     """Evaluate a candidate's answer using the evaluator for its question type."""
     if question.question_type in _RUBRIC_EVALUATED_TYPES:

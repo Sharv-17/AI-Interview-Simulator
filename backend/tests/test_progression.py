@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.repositories.question_repository import question_repository
 from app.services import interview_engine as engine_module
 from app.services.interview_engine import interview_engine
 
@@ -86,7 +87,8 @@ def test_next_advances_to_a_new_question_and_restarts_the_timer():
     assert body["status"] == "active"
     # The new question has its own, fresh timer.
     assert session.question_started_at > stale
-    assert session.question_time_limit_seconds == 90
+    new_question = question_repository.get_by_id(body["current_question_id"])
+    assert session.question_time_limit_seconds == new_question.estimated_time_seconds
 
 
 def test_answer_after_advancing_applies_to_the_new_question_and_updates_competency_again():

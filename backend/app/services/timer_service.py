@@ -13,7 +13,7 @@ question been exceeded", independent of whatever the client claims via
 submission_reason.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 from app.config import DEFAULT_QUESTION_TIME_LIMIT_SECONDS
@@ -40,3 +40,21 @@ def check_timeout(
         at = datetime.now(timezone.utc)
     elapsed = elapsed_seconds(question_started_at, at)
     return elapsed > time_limit_seconds, elapsed
+
+
+def deadline(question_started_at: datetime, time_limit_seconds: int, grace_seconds: int = 0) -> datetime:
+    """The last instant an answer is accepted: start + time limit + grace period."""
+    return question_started_at + timedelta(seconds=time_limit_seconds + grace_seconds)
+
+
+def is_past_deadline(
+    question_started_at: datetime,
+    time_limit_seconds: int,
+    grace_seconds: int = 0,
+    at: Optional[datetime] = None,
+) -> bool:
+    """True once `at` (default: now, UTC) is later than the answer deadline."""
+    if at is None:
+        at = datetime.now(timezone.utc)
+    return at > deadline(question_started_at, time_limit_seconds, grace_seconds)
+
