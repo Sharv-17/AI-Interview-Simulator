@@ -46,16 +46,24 @@ def engine():
 
     url = _normalize_url(TEST_URL)
     admin = create_engine(url, poolclass=NullPool)
-    with admin.begin() as connection:
-        connection.execute(text(f'CREATE SCHEMA "{SCHEMA}"'))
-    scoped = create_engine(url, connect_args={"options": f"-csearch_path={SCHEMA}"}, poolclass=NullPool)
-    Base.metadata.create_all(scoped)
+    scoped = None
+    created = False
     try:
+        with admin.begin() as connection:
+            connection.execute(text(f'CREATE SCHEMA "{SCHEMA}"'))
+        created = True
+        scoped = create_engine(
+            url, connect_args={"options": f"-csearch_path={SCHEMA}"}, poolclass=NullPool
+        )
+        # Inside try: a failed table setup must still drop the schema it created.
+        Base.metadata.create_all(scoped)
         yield scoped
     finally:
-        scoped.dispose()
-        with admin.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA IF EXISTS "{SCHEMA}" CASCADE'))
+        if scoped is not None:
+            scoped.dispose()
+        if created:
+            with admin.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA IF EXISTS "{SCHEMA}" CASCADE'))
         admin.dispose()
 
 
