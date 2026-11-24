@@ -77,7 +77,8 @@ class InterviewSessionModel(Base):
     )
 
     interview_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.candidate_id", ondelete="RESTRICT"))
+    # Nullable: an interview may be anonymous (no candidate record is ever faked).
+    candidate_id: Mapped[Optional[str]] = mapped_column(ForeignKey("candidates.candidate_id", ondelete="RESTRICT"))
     topic: Mapped[str] = mapped_column(String(120))
     difficulty: Mapped[str] = mapped_column(String(16))
     question_count: Mapped[int] = mapped_column(Integer)
@@ -165,7 +166,8 @@ class CompetencyHistoryModel(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     interview_id: Mapped[str] = mapped_column(ForeignKey("interview_sessions.interview_id", ondelete="CASCADE"))
-    candidate_id: Mapped[str] = mapped_column(ForeignKey("candidates.candidate_id", ondelete="RESTRICT"))
+    # Nullable for the same reason as interview_sessions.candidate_id.
+    candidate_id: Mapped[Optional[str]] = mapped_column(ForeignKey("candidates.candidate_id", ondelete="RESTRICT"))
     competency_id: Mapped[str] = mapped_column(String(160))
     answer_id: Mapped[str] = mapped_column(ForeignKey("candidate_answers.answer_id", ondelete="CASCADE"), unique=True)
     question_id: Mapped[str] = mapped_column(String(64))
