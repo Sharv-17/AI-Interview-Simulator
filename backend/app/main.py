@@ -23,6 +23,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Interview Simulator", lifespan=lifespan)
+import os
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in os.environ.get("FRONTEND_ORIGINS", "").split(",") if o.strip()],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
 
 app.middleware("http")(enforce_transcribe_size_limit)
 
