@@ -14,6 +14,7 @@ export default function Layout() {
           </Link>
           <nav aria-label="Main">
             <NavLink to="/start" className="nav-link">Start an interview</NavLink>
+            <NavLink to="/login" className="nav-link">Sign in</NavLink>
           </nav>
         </div>
       </header>

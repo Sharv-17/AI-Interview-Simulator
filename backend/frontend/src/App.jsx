@@ -3,7 +3,9 @@ import { Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import Home from './pages/Home.jsx'
 import Interview from './pages/Interview.jsx'
+import Login from './pages/Login.jsx'
 import NotFound from './pages/NotFound.jsx'
+import Register from './pages/Register.jsx'
 import Privacy from './pages/Privacy.jsx'
 import Start from './pages/Start.jsx'
 import Terms from './pages/Terms.jsx'
@@ -26,6 +28,8 @@ export default function App() {
             </Suspense>
           }
         />
+        <Route path="login" element={<Login />} />
+        <Route path="register" element={<Register />} />
         <Route path="privacy" element={<Privacy />} />
         <Route path="terms" element={<Terms />} />
         <Route path="*" element={<NotFound />} />
