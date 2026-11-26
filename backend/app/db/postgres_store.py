@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
-from sqlalchemy import create_engine, select, text, update
+from sqlalchemy import create_engine, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -170,18 +170,52 @@ class PostgresInterviewStore(InterviewStore):
 
     # ---------------------------------------------------------------- interviews
 
+    def _question_history(self, db: Session, candidate_id: str, topic: str) -> Dict[str, datetime]:
+        """When this candidate last saw each question of `topic` (assigned, not answered).
+
+        Reads the existing interview_questions rows: unanswered, timed-out and
+        abandoned assignments all count as encounters. No extra table is needed.
+        """
+        rows = db.execute(
+            select(InterviewQuestionModel.question_id, func.max(InterviewQuestionModel.assigned_at))
+            .join(
+                InterviewSessionModel,
+                InterviewQuestionModel.interview_id == InterviewSessionModel.interview_id,
+            )
+            .where(
+                InterviewSessionModel.candidate_id == candidate_id,
+                func.lower(InterviewSessionModel.topic) == topic.lower(),
+            )
+            .group_by(InterviewQuestionModel.question_id)
+        ).all()
+        return {question_id: last_assigned for question_id, last_assigned in rows}
+
     def create_interview(
         self, topic: str, difficulty: DifficultyLevel, question_count: int, candidate_id: Optional[str]
     ) -> InterviewSession:
         db = self._session_factory()
         try:
-            if candidate_id is not None and db.get(CandidateModel, candidate_id) is None:
-                raise CandidateNotFoundError()
+            history: Dict[str, datetime] = {}
+            if candidate_id is not None:
+                # Lock the candidate row: two concurrent starts for one candidate are
+                # serialised, so the second one sees the first assignment in its history.
+                # FOR NO KEY UPDATE (not FOR UPDATE) because it conflicts with itself but
+                # not with the FOR KEY SHARE locks that FK checks take when answers are
+                # evaluated for the same candidate; the lock is held only until commit.
+                candidate = db.execute(
+                    select(CandidateModel)
+                    .where(CandidateModel.candidate_id == candidate_id)
+                    .with_for_update(key_share=True)
+                ).scalar_one_or_none()
+                if candidate is None:
+                    raise CandidateNotFoundError()
+                history = self._question_history(db, candidate_id, topic)
             session = InterviewSession(
                 topic=topic,
                 difficulty=difficulty,
                 question_count=question_count,
                 candidate_id=candidate_id,
+                encountered=history,
             )
             # The session row references its first question: that row must exist first
             # (a no-op after startup(), but it makes the store independent of call order).
@@ -215,12 +249,12 @@ class PostgresInterviewStore(InterviewStore):
             db.close()
 
     @contextmanager
-    def edit(self, interview_id: str) -> Iterator[InterviewSession]:
+    def edit(self, interview_id: str, with_history: bool = False) -> Iterator[InterviewSession]:
         db = self._session_factory()
         committed = False
         try:
             row = self._lock_interview(db, interview_id)
-            session, _, _ = self._load_interview(db, row)
+            session, _, _ = self._load_interview(db, row, with_history=with_history)
             try:
                 yield session
             except DomainRejection:
@@ -418,24 +452,33 @@ class PostgresInterviewStore(InterviewStore):
 
     # ----------------------------------------------------------- reconstruction
 
-    def _load_interview_by_id(self, db: Session, interview_id: str) -> Tuple[InterviewSession, InterviewSessionModel, List[InterviewQuestionModel]]:
+    def _load_interview_by_id(
+        self, db: Session, interview_id: str, with_history: bool = False
+    ) -> Tuple[InterviewSession, InterviewSessionModel, List[InterviewQuestionModel]]:
         row = db.get(InterviewSessionModel, interview_id)
         if row is None:
             raise InterviewNotFoundError()
-        return self._load_interview(db, row)
+        return self._load_interview(db, row, with_history=with_history)
 
     def _load_interview(
-        self, db: Session, row: InterviewSessionModel
+        self, db: Session, row: InterviewSessionModel, with_history: bool = False
     ) -> Tuple[InterviewSession, InterviewSessionModel, List[InterviewQuestionModel]]:
-        """Rebuild the domain object from the database. No rule is re-implemented here."""
-        # Constructing normally keeps one initialization path; its cold-start selection is
-        # discarded below because the persisted questions are authoritative.
+        """Rebuild the domain object from the database. No rule is re-implemented here.
+
+        History is loaded only when the caller is about to select a question
+        (`with_history=True`), never for ordinary reads.
+        """
+        history: Dict[str, datetime] = {}
+        if with_history and row.candidate_id is not None:
+            history = self._question_history(db, row.candidate_id, row.topic)
         session = InterviewSession(
             topic=row.topic,
             difficulty=DifficultyLevel(row.difficulty),
             question_count=row.question_count,
             candidate_id=row.candidate_id,
             now=row.created_at,
+            encountered=history,
+            select_initial=False,
         )
         session.changes.clear()
 
@@ -463,6 +506,8 @@ class PostgresInterviewStore(InterviewStore):
             .all()
         )
         by_question = {iq.question_id: iq for iq in iq_rows}
+        session.encountered = dict(history)
+        session.question_assigned_at = {iq.question_id: iq.assigned_at for iq in iq_rows}
         session.asked_question_ids = [iq.question_id for iq in iq_rows]
         session.timed_out_question_ids = {iq.question_id for iq in iq_rows if iq.state == "timed_out"}
 

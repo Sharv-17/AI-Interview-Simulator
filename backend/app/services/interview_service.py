@@ -83,7 +83,8 @@ class InterviewService:
         return self._store.read(interview_id).to_response(self._clock())
 
     def advance(self, interview_id: str) -> InterviewResponse:
-        with self._store.edit(interview_id) as session:
+        # Only advancing needs the candidate's question history (cooldown rotation).
+        with self._store.edit(interview_id, with_history=True) as session:
             session.advance_to_next_question(self._clock())
             return session.to_response(self._clock())
 

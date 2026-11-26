@@ -460,6 +460,92 @@ def test_two_evaluations_on_one_competency_reconstruct_the_latest_state(store, s
     assert restarted.report(session.interview_id).competency["Databases"].theta == pytest.approx(0.55325)
 
 
+# --------------------------------------------------------------------- rotation
+
+
+def test_assigned_questions_enter_the_cooldown_history(store, synced_engine):
+    candidate = _new_candidate(store, "Rotating")
+    first = store.create_interview(TOPIC, DifficultyLevel.EASY, 2, candidate.candidate_id)
+    with synced_engine.connect() as connection:
+        assigned = (
+            connection.execute(
+                text("SELECT question_id FROM interview_questions WHERE interview_id = :iid"),
+                {"iid": first.interview_id},
+            )
+            .scalars()
+            .all()
+        )
+    assert assigned == [first.current_question_id]
+
+    # Assigned but never answered still counts as an encounter.
+    second = store.create_interview(TOPIC, DifficultyLevel.EASY, 2, candidate.candidate_id)
+    assert second.current_question_id != first.current_question_id
+
+
+def test_rotation_continues_across_many_interviews(store):
+    candidate = _new_candidate(store, "Rotating")
+    seen = [
+        store.create_interview(TOPIC, DifficultyLevel.EASY, 1, candidate.candidate_id).current_question_id
+        for _ in range(6)
+    ]
+    assert len(set(seen)) == 6
+
+
+def test_question_history_is_scoped_to_candidate_and_topic(store):
+    candidate = _new_candidate(store, "Scoped")
+    session = store.create_interview(TOPIC, DifficultyLevel.EASY, 1, candidate.candidate_id)
+
+    with store._session_factory() as db:
+        scoped = store._question_history(db, candidate.candidate_id, TOPIC)
+        other_topic = store._question_history(db, candidate.candidate_id, "Security")
+        unknown_candidate = store._question_history(db, str(uuid.uuid4()), TOPIC)
+
+    assert set(scoped) == {session.current_question_id}
+    assert other_topic == {}
+    assert unknown_candidate == {}
+
+
+def test_rotation_survives_a_restart(store, synced_engine):
+    candidate = _new_candidate(store, "Restart")
+    first = store.create_interview(TOPIC, DifficultyLevel.EASY, 2, candidate.candidate_id)
+
+    restarted = PostgresInterviewStore(synced_engine)
+    second = restarted.create_interview(TOPIC, DifficultyLevel.EASY, 2, candidate.candidate_id)
+    assert second.current_question_id != first.current_question_id
+
+
+def test_timed_out_assignment_counts_as_an_encounter(store):
+    candidate = _new_candidate(store, "Abandoned")
+    first = store.create_interview(TOPIC, DifficultyLevel.EASY, 2, candidate.candidate_id)
+    question_id = first.current_question_id
+    late = first.question_started_at + timedelta(
+        seconds=first.question_time_limit_seconds + first.question_grace_seconds + 5
+    )
+    service = InterviewService(store, clock=lambda: late)
+    with pytest.raises(QuestionDeadlinePassedError):
+        service.submit_answer(
+            first.interview_id, AnswerSubmitRequest(question_id=question_id, answer_text="Too late")
+        )
+
+    second = store.create_interview(TOPIC, DifficultyLevel.EASY, 2, candidate.candidate_id)
+    assert second.current_question_id != question_id
+
+
+def test_advance_keeps_rotation_active(store):
+    candidate = _new_candidate(store, "Advancing")
+    session = store.create_interview(TOPIC, DifficultyLevel.EASY, 3, candidate.candidate_id)
+    asked = [session.current_question_id]
+    service = InterviewService(store)
+    for _ in range(2):
+        state = store.read(session.interview_id)
+        service.submit_answer(
+            session.interview_id,
+            AnswerSubmitRequest(question_id=state.current_question_id, answer_text="A detailed answer " * 5),
+        )
+        asked.append(service.advance(session.interview_id).current_question_id)
+    assert len(set(asked)) == 3
+
+
 def test_list_interviews_returns_only_this_candidates(store, synced_engine):
     candidate = _new_candidate(store, "Listed")
     first = store.create_interview(TOPIC, DifficultyLevel.EASY, 1, candidate.candidate_id)

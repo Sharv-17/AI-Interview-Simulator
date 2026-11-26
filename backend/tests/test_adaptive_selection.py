@@ -6,6 +6,7 @@ real question bank. Expected numbers are hand-computed:
     QScore = 0.5 * H(theta) + 0.5 * (1 - |theta - d|),  d: easy .25 / medium .5 / hard .75
 """
 
+import random
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -156,7 +157,8 @@ def test_different_competencies_and_difficulties_are_ranked_together(monkeypatch
     pool = [_q("B-med", M, "B"), _q("B-hard", H, "B"), _q("A-hard", H, "A"), _q("A-easy", E, "A")]
     _use_bank(monkeypatch, pool)
     states = {"A": _state("A", 0.5), "B": _state("B", 0.9)}
-    assert select_next_question("T", M, [], states).question_id == "A-easy"  # tie 0.875, id order
+    # A-easy and A-hard tie at 0.875; randomisation may pick either, never B or medium.
+    assert select_next_question("T", M, [], states).question_id in {"A-easy", "A-hard"}
     scored = {s.question_id: s.qscore for s in score_candidates(pool, states)}
     assert scored["B-hard"] == pytest.approx(0.659497796795, abs=1e-9)
     assert scored["B-med"] == pytest.approx(0.534497796795, abs=1e-9)
@@ -245,22 +247,28 @@ def test_difficulty_streak_is_broken_after_the_limit(monkeypatch):
     _use_bank(monkeypatch, _streak_pool())
     states = {"A": _state("A", 0.5)}
     assert STREAK_LIMIT == 3
-    # Two mediums in a row: no guard, theta 0.5 still prefers medium.
-    assert select_next_question("T", M, ["M1", "M2"], states).question_id == "M3"
-    # Three mediums in a row: forced to a different difficulty (easy/hard tie -> id order).
-    assert select_next_question("T", M, ["M1", "M2", "M3"], states).question_id == "E1"
+    # Two mediums in a row: no guard, theta 0.5 still prefers medium (tie -> random medium).
+    assert select_next_question("T", M, ["M1", "M2"], states).difficulty == M
+    # Three mediums in a row: forced to a different difficulty (easy/hard tie -> either).
+    forced = select_next_question("T", M, ["M1", "M2", "M3"], states)
+    assert forced.difficulty != M
+    assert forced.difficulty in (E, H)
 
 
 def test_streak_guard_never_causes_a_dead_end(monkeypatch):
     _use_bank(monkeypatch, [_q(f"M{i}", M) for i in range(1, 7)])
     states = {"A": _state("A", 0.5)}
-    assert select_next_question("T", M, ["M1", "M2", "M3"], states).question_id == "M4"
+    # Nothing else is available, so the guard must not block: any unasked medium is fine.
+    chosen = select_next_question("T", M, ["M1", "M2", "M3"], states)
+    assert chosen is not None
+    assert chosen.question_id in {"M4", "M5", "M6"}
+    assert chosen.difficulty == M
 
 
 def test_streak_guard_only_counts_consecutive_same_difficulty(monkeypatch):
     _use_bank(monkeypatch, _streak_pool())
     states = {"A": _state("A", 0.5)}
-    assert select_next_question("T", M, ["M1", "E1", "M2"], states).question_id == "M3"
+    assert select_next_question("T", M, ["M1", "E1", "M2"], states).difficulty == M
 
 
 # ---------------------------------------------------------------------------
@@ -268,10 +276,13 @@ def test_streak_guard_only_counts_consecutive_same_difficulty(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_same_inputs_always_give_the_same_question(monkeypatch):
+def test_same_inputs_and_seed_always_give_the_same_question(monkeypatch):
     _use_bank(monkeypatch, _streak_pool())
     states = {"A": _state("A", 0.37)}
-    results = {select_next_question("T", M, ["M1"], states).question_id for _ in range(10)}
+    results = {
+        select_next_question("T", M, ["M1"], states, rng=random.Random(7)).question_id
+        for _ in range(10)
+    }
     assert len(results) == 1
 
 
@@ -279,9 +290,9 @@ def test_result_does_not_depend_on_the_order_questions_are_stored(monkeypatch):
     pool = _streak_pool()
     states = {"A": _state("A", 0.5)}
     _use_bank(monkeypatch, pool)
-    forward = select_next_question("T", M, ["M1"], states).question_id
+    forward = select_next_question("T", M, ["M1"], states, rng=random.Random(5)).question_id
     _use_bank(monkeypatch, list(reversed(pool)))
-    assert select_next_question("T", M, ["M1"], states).question_id == forward
+    assert select_next_question("T", M, ["M1"], states, rng=random.Random(5)).question_id == forward
 
 
 # ---------------------------------------------------------------------------

@@ -26,10 +26,26 @@ Two modes
   The requested interview difficulty is NOT used in this mode: difficulty
   follows theta.
 
-Determinism and tie-breaking
-----------------------------
-No randomness anywhere. Ranking is QScore descending, then question_id
-ascending, so the result does not depend on the order candidates arrive in.
+Candidate cooldown rotation
+---------------------------
+Selection is candidate-aware: previously assigned questions of the same topic
+(see `encountered`) are rotated out before fresh ones. The priority is:
+
+  1. never-seen questions first (ranked by QScore as above);
+  2. when none are left, the least recently assigned questions;
+  3. seen questions are never excluded permanently.
+
+`encountered` maps question_id -> most recent assignment time. It only
+reorders eligible candidates: servability, anti-streak, requested initial
+difficulty and no-repeat-within-interview are all applied first and unchanged.
+
+Tie-breaking and controlled randomisation
+-----------------------------------------
+QScore depends only on (theta, difficulty), so many questions tie exactly.
+Candidates tied on the winning rank key are ordered by question_id (so the
+result never depends on repository order) and ONE is chosen with an injectable
+random generator (`rng`). Randomness never crosses tiers, difficulties or the
+guard above; tests pass a seeded generator for deterministic assertions.
 
 Anti-streak guard
 -----------------
@@ -50,8 +66,10 @@ Safe fallbacks
 
 import logging
 import math
+import random
 from dataclasses import dataclass
-from typing import Any, List, Mapping, Optional, Sequence
+from datetime import datetime
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from app.repositories.question_repository import question_repository
 from app.schemas.interview import DifficultyLevel
@@ -143,10 +161,86 @@ def _recent_streak_difficulty(asked_question_ids: Sequence[str]) -> Optional[Dif
     return difficulties[0] if len(set(difficulties)) == 1 else None
 
 
-def _baseline_choice(candidates: Sequence[Question], topic: str, difficulty: DifficultyLevel) -> Question:
-    """Cold-start choice: best baseline_score (topic + requested difficulty); ties keep bank order."""
-    ranked = sorted(candidates, key=lambda q: baseline_score(q, topic, difficulty), reverse=True)
-    return ranked[0]
+# Default generator for tie-breaking only; tests inject a seeded one.
+_RNG = random.Random()
+
+# question_id -> most recent assignment time (any storage backend).
+Encountered = Mapping[str, datetime]
+
+
+def _tie_group(qscores: Mapping[str, Optional[float]], ranked_ids: Sequence[str]) -> List[str]:
+    """IDs sharing the best (12-decimal) QScore, sorted so order never depends on the bank."""
+    best = round(qscores[ranked_ids[0]], 12)
+    return sorted(qid for qid in ranked_ids if round(qscores[qid], 12) == best)
+
+
+def _baseline_choice(
+    candidates: Sequence[Question],
+    topic: str,
+    difficulty: DifficultyLevel,
+    rng: Optional[random.Random] = None,
+) -> Question:
+    """Cold-start choice: best baseline_score; random among exact ties (id-sorted)."""
+    best = max(baseline_score(q, topic, difficulty) for q in candidates)
+    tied = sorted(
+        (q for q in candidates if baseline_score(q, topic, difficulty) == best),
+        key=lambda q: q.question_id,
+    )
+    return (rng or _RNG).choice(tied)
+
+
+def _cold_start_choice(
+    candidates: Sequence[Question],
+    topic: str,
+    difficulty: DifficultyLevel,
+    encountered: Encountered,
+    rng: Optional[random.Random],
+) -> Question:
+    """First question: the requested difficulty wins, then cooldown, then baseline score."""
+    requested = [q for q in candidates if q.difficulty == difficulty]
+    pool = requested or list(candidates)
+    unseen = [q for q in pool if q.question_id not in encountered]
+    if unseen:
+        pool = unseen
+    else:
+        # Everything available has been seen: rotate by least-recent assignment,
+        # the same cooldown rule the adaptive tier uses.
+        seen = [q for q in pool if q.question_id in encountered]
+        if seen:
+            oldest = min(encountered[q.question_id] for q in seen)
+            pool = [q for q in seen if encountered[q.question_id] == oldest]
+    return _baseline_choice(pool, topic, difficulty, rng)
+
+
+def _adaptive_choice(
+    candidates: Sequence[Question],
+    competency_states: Mapping[str, Any],
+    encountered: Encountered,
+    topic: str,
+    difficulty: DifficultyLevel,
+    rng: Optional[random.Random],
+) -> Question:
+    """Unseen tier (QScore) first; otherwise least-recently-assigned, then QScore."""
+    qscores: Dict[str, Optional[float]] = {
+        item.question_id: item.qscore for item in score_candidates(candidates, competency_states)
+    }
+    by_id = {question.question_id: question for question in candidates}
+
+    def best_in(pool: Sequence[Question]) -> Optional[str]:
+        ranked = rank_by_qscore([(q.question_id, qscores[q.question_id]) for q in pool])
+        if not ranked:
+            return None
+        return (rng or _RNG).choice(_tie_group(qscores, ranked))
+
+    unseen = [q for q in candidates if q.question_id not in encountered]
+    if unseen:
+        chosen_id = best_in(unseen)
+    else:
+        oldest = min(encountered[q.question_id] for q in candidates)
+        chosen_id = best_in([q for q in candidates if encountered[q.question_id] == oldest])
+    if chosen_id is None:
+        return _baseline_choice(candidates, topic, difficulty, rng)
+    return by_id[chosen_id]
 
 
 def select_next_question(
@@ -154,15 +248,20 @@ def select_next_question(
     difficulty: DifficultyLevel,
     asked_question_ids: Optional[Sequence[str]] = None,
     competency_states: Optional[Mapping[str, Any]] = None,
+    encountered: Optional[Encountered] = None,
+    rng: Optional[random.Random] = None,
 ) -> Optional[Question]:
     """Select the next question for a candidate, or None if none is available.
 
     `asked_question_ids` must be in the order the questions were asked.
     `competency_states` maps competency_id -> state (anything with `.theta`);
     when empty or None the selector is in cold-start mode.
+    `encountered` maps question_id -> most recent assignment time for THIS
+    candidate and topic (empty/None for an anonymous or first interview).
     """
     asked_list = list(asked_question_ids or [])
     asked = set(asked_list)
+    history = encountered or {}
 
     candidates = [
         question
@@ -173,7 +272,7 @@ def select_next_question(
         return None
 
     if not competency_states:
-        return _baseline_choice(candidates, topic, difficulty)
+        return _cold_start_choice(candidates, topic, difficulty, history, rng)
 
     streak_difficulty = _recent_streak_difficulty(asked_list)
     if streak_difficulty is not None:
@@ -181,10 +280,4 @@ def select_next_question(
         if alternatives:
             candidates = alternatives
 
-    scored = score_candidates(candidates, competency_states)
-    ranked_ids = rank_by_qscore([(item.question_id, item.qscore) for item in scored])
-    if not ranked_ids:
-        return _baseline_choice(candidates, topic, difficulty)
-
-    by_id = {question.question_id: question for question in candidates}
-    return by_id[ranked_ids[0]]
+    return _adaptive_choice(candidates, competency_states, history, topic, difficulty, rng)

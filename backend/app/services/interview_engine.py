@@ -20,10 +20,11 @@ integrity indicator or a "timed out" mark; stores commit those.
 """
 
 import logging
+import random
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Mapping, Optional, Set
 
 from app import config
 from app.config import DEFAULT_QUESTION_TIME_LIMIT_SECONDS
@@ -72,6 +73,9 @@ class InterviewSession:
         question_count: int,
         candidate_id: Optional[str] = None,
         now: Optional[datetime] = None,
+        encountered: Optional[Mapping[str, datetime]] = None,
+        rng: Optional[random.Random] = None,
+        select_initial: bool = True,
     ) -> None:
         now = now or utcnow()
         self.interview_id: str = str(uuid.uuid4())
@@ -84,6 +88,11 @@ class InterviewSession:
         self.created_at: datetime = now
         self.completed_at: Optional[datetime] = None
         self.asked_question_ids: List[str] = []
+        # question_id -> when it was assigned in THIS interview (in-memory history source).
+        self.question_assigned_at: Dict[str, datetime] = {}
+        # question_id -> most recent assignment in EARLIER interviews (cooldown rotation).
+        self.encountered: Dict[str, datetime] = dict(encountered or {})
+        self._rng = rng
         self.current_question_id: Optional[str] = None
         self.question_started_at: Optional[datetime] = None
         self.question_time_limit_seconds: Optional[int] = None
@@ -96,7 +105,8 @@ class InterviewSession:
         self.competency_state = CompetencyStateStore()
         self.changes: List[ch.Change] = []
 
-        self._select_initial_question(now)
+        if select_initial:
+            self._select_initial_question(now)
 
     # ------------------------------------------------------------------ questions
 
@@ -108,6 +118,8 @@ class InterviewSession:
             topic=self.topic,
             difficulty=self.difficulty,
             asked_question_ids=self.asked_question_ids,
+            encountered=self.encountered,
+            rng=self._rng,
         )
         if question is not None:
             self._set_current_question(question, now)
@@ -117,6 +129,7 @@ class InterviewSession:
         limit = question.estimated_time_seconds or DEFAULT_QUESTION_TIME_LIMIT_SECONDS
         self.current_question_id = question.question_id
         self.asked_question_ids.append(question.question_id)
+        self.question_assigned_at[question.question_id] = now
         self.question_started_at = now
         self.question_time_limit_seconds = limit
         self.question_grace_seconds = config.ANSWER_GRACE_SECONDS
@@ -479,6 +492,8 @@ class InterviewSession:
             difficulty=self.difficulty,
             asked_question_ids=self.asked_question_ids,
             competency_states=self.competency_state.get_all(),
+            encountered=self.encountered,
+            rng=self._rng,
         )
         if next_question is None:
             self._complete(now)
@@ -569,10 +584,15 @@ class InterviewEngine:
         difficulty: DifficultyLevel,
         question_count: int,
         candidate_id: Optional[str] = None,
+        encountered: Optional[Mapping[str, datetime]] = None,
     ) -> InterviewSession:
         """Create a new interview session and store it."""
         session = InterviewSession(
-            topic=topic, difficulty=difficulty, question_count=question_count, candidate_id=candidate_id
+            topic=topic,
+            difficulty=difficulty,
+            question_count=question_count,
+            candidate_id=candidate_id,
+            encountered=encountered,
         )
         with self._guard:
             self._sessions[session.interview_id] = session

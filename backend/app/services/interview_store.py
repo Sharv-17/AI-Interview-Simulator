@@ -44,7 +44,7 @@ class InterviewStore(ABC):
     ) -> InterviewSession: ...
 
     @abstractmethod
-    def edit(self, interview_id: str): ...  # context manager yielding InterviewSession
+    def edit(self, interview_id: str, with_history: bool = False): ...  # context manager yielding InterviewSession
 
     @abstractmethod
     def read(self, interview_id: str) -> InterviewSession: ...
@@ -84,18 +84,46 @@ class MemoryInterviewStore(InterviewStore):
     def __init__(self, engine: Optional[InterviewEngine] = None) -> None:
         self._engine = engine or interview_engine
         self._candidates: Dict[str, CandidateView] = {}
+        # Serialise concurrent interview creation for one candidate so the second
+        # creation sees the first one's assignment in its cooldown history.
+        self._creation_guard = threading.Lock()
+        self._creation_locks: Dict[str, threading.Lock] = {}
 
     # ---------------------------------------------------------------- interviews
+
+    def _creation_lock(self, candidate_id: str) -> threading.Lock:
+        with self._creation_guard:
+            return self._creation_locks.setdefault(candidate_id, threading.Lock())
+
+    def _question_history(self, candidate_id: str, topic: str) -> Dict[str, datetime]:
+        """When this candidate last saw each question of `topic` (assigned, not answered)."""
+        history: Dict[str, datetime] = {}
+        for session in self._engine.sessions():
+            if session.candidate_id != candidate_id or session.topic.lower() != topic.lower():
+                continue
+            for question_id in session.asked_question_ids:
+                assigned_at = session.question_assigned_at.get(question_id, session.created_at)
+                if question_id not in history or assigned_at > history[question_id]:
+                    history[question_id] = assigned_at
+        return history
 
     def create_interview(self, topic, difficulty, question_count, candidate_id):
         if candidate_id is not None and candidate_id not in self._candidates:
             raise CandidateNotFoundError()
-        session = self._engine.create_interview(topic, difficulty, question_count, candidate_id)
+        if candidate_id is None:
+            session = self._engine.create_interview(topic, difficulty, question_count, candidate_id)
+        else:
+            with self._creation_lock(candidate_id):
+                history = self._question_history(candidate_id, topic)
+                session = self._engine.create_interview(
+                    topic, difficulty, question_count, candidate_id, encountered=history
+                )
         session.changes.clear()
         return session
 
     @contextmanager
-    def edit(self, interview_id: str) -> Iterator[InterviewSession]:
+    def edit(self, interview_id: str, with_history: bool = False) -> Iterator[InterviewSession]:
+        # The in-memory session already carries its cooldown history; nothing to load.
         session = self._engine.get_interview(interview_id)
         lock = self._engine.lock_for(interview_id)
         if session is None or lock is None:
