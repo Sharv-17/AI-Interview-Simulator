@@ -7,6 +7,7 @@ them against the Neon database cannot damage its `public` schema).
 """
 
 import os
+import threading
 import uuid
 from datetime import timedelta
 
@@ -544,6 +545,131 @@ def test_advance_keeps_rotation_active(store):
         )
         asked.append(service.advance(session.interview_id).current_question_id)
     assert len(set(asked)) == 3
+
+
+def test_topic_history_matching_is_case_insensitive(store, synced_engine):
+    """`Databases` and `databases` share one cooldown history (the real SQL query)."""
+    candidate = _new_candidate(store, "Case")
+
+    first = store.create_interview("Databases", DifficultyLevel.EASY, 1, candidate.candidate_id)
+    assert first.current_question_id is not None
+    assert first.encountered == {}  # nothing to rotate yet
+
+    # The stored topic keeps the caller's capitalization: only the lookup normalizes.
+    with synced_engine.connect() as connection:
+        stored = connection.execute(
+            text("SELECT topic FROM interview_sessions WHERE interview_id = :iid"),
+            {"iid": first.interview_id},
+        ).scalar_one()
+    assert stored == "Databases"
+
+    with store._session_factory() as db:
+        mixed_case = store._question_history(db, candidate.candidate_id, "dAtAbAsEs")
+    assert set(mixed_case) == {first.current_question_id}
+
+    # A case-sensitive history query would return {} here, so `encountered` would be
+    # empty and the cooldown tier would not know the first question was already used.
+    second = store.create_interview("databases", DifficultyLevel.EASY, 1, candidate.candidate_id)
+    assert set(second.encountered) == {first.current_question_id}
+    assert second.current_question_id != first.current_question_id
+    assert question_repository.get_by_id(second.current_question_id).difficulty == DifficultyLevel.EASY
+
+    with synced_engine.connect() as connection:
+        second_topic = connection.execute(
+            text("SELECT topic FROM interview_sessions WHERE interview_id = :iid"),
+            {"iid": second.interview_id},
+        ).scalar_one()
+        assigned = (
+            connection.execute(
+                text("SELECT question_id FROM interview_questions WHERE interview_id = :iid"),
+                {"iid": second.interview_id},
+            )
+            .scalars()
+            .all()
+        )
+    assert second_topic == "databases"
+    assert assigned == [second.current_question_id]
+
+    # Neither another candidate nor a genuinely different topic sees this history.
+    other = _new_candidate(store, "Unrelated")
+    with store._session_factory() as db:
+        assert store._question_history(db, other.candidate_id, "Databases") == {}
+        assert store._question_history(db, candidate.candidate_id, "Security") == {}
+
+
+def test_concurrent_creation_serialises_the_cooldown(synced_engine, store):
+    """Two independent sessions starting at once must not assign the same question.
+
+    Each worker owns its engine (its own connections), and a barrier releases both
+    into `create_interview` together. Server-side statement/lock timeouts plus the
+    bounded joins keep a deadlock from hanging the suite.
+    """
+    candidate = _new_candidate(store, "Concurrent")
+    barrier = threading.Barrier(2)
+    created, errors = [], []
+
+    def worker():
+        engine = create_engine(
+            synced_engine.url,
+            poolclass=NullPool,
+            connect_args={
+                "connect_timeout": 10,
+                "options": (
+                    f"-csearch_path={SCHEMA} -cstatement_timeout=30000 -clock_timeout=15000"
+                ),
+            },
+        )
+        own_store = PostgresInterviewStore(engine)
+        try:
+            barrier.wait(timeout=15)
+            created.append(
+                own_store.create_interview("Databases", DifficultyLevel.EASY, 1, candidate.candidate_id)
+            )
+        except BaseException as exc:  # surfaced by the assertions below, never swallowed
+            errors.append(exc)
+        finally:
+            own_store.dispose()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=90)
+    assert not any(thread.is_alive() for thread in threads), "concurrent creation did not finish in 90s"
+    assert errors == []
+    assert len(created) == 2
+
+    # The candidate row lock serialises the two starts: the later one already saw the
+    # earlier assignment. Without the lock both would read an empty history.
+    ordered = sorted(created, key=lambda session: len(session.encountered))
+    first, second = ordered
+    assert [len(session.encountered) for session in ordered] == [0, 1]
+    assert set(second.encountered) == {first.current_question_id}
+    assert first.current_question_id != second.current_question_id
+
+    # Persisted state: exactly one assignment per interview, matching what was returned.
+    with synced_engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT s.interview_id, s.current_question_id, iq.question_id "
+                "FROM interview_sessions s JOIN interview_questions iq USING (interview_id) "
+                "WHERE s.candidate_id = :cid"
+            ),
+            {"cid": candidate.candidate_id},
+        ).all()
+    assert len(rows) == 2
+    assert {row.interview_id for row in rows} == {session.interview_id for session in created}
+    assert {row.question_id for row in rows} == {session.current_question_id for session in created}
+    assert all(row.current_question_id == row.question_id for row in rows)
+
+    # Cooldown history after both commits contains both questions, and rotation continues.
+    with store._session_factory() as db:
+        history = store._question_history(db, candidate.candidate_id, "Databases")
+    assert set(history) == {session.current_question_id for session in created}
+
+    third = store.create_interview("Databases", DifficultyLevel.EASY, 1, candidate.candidate_id)
+    assert third.current_question_id not in {session.current_question_id for session in created}
+    assert set(third.encountered) == {session.current_question_id for session in created}
 
 
 def test_list_interviews_returns_only_this_candidates(store, synced_engine):
