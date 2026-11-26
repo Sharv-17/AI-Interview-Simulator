@@ -1,10 +1,17 @@
-"""Candidate records and history. No authentication exists in this backend: protect these
-endpoints (they expose another person's history) before any real deployment."""
+"""Guest candidate records and history, addressed by a candidate id in the path.
+
+These remain unauthenticated on purpose: a guest candidate has no account and its id
+is the only handle the existing frontend has. Account-owned candidates are reachable
+the same way *for guests*, but a request carrying a session is checked: the interview
+endpoints (app/api/auth_deps.py: require_interview_access) refuse another account's
+interviews. The account-scoped equivalents are in app/api/account.py.
+"""
 
 from typing import List
 
 from fastapi import APIRouter, Depends
 
+from app.api.auth_deps import require_candidate_access
 from app.api.errors import http_error_for
 from app.schemas.candidate import CandidateCreate, CandidateView, CompetencyHistoryEntry, InterviewSummary
 from app.services.interview_service import InterviewService, get_interview_service
@@ -34,17 +41,33 @@ def create_candidate(payload: CandidateCreate, service: InterviewService = Depen
 
 
 @router.get("/{candidate_id}", response_model=CandidateView)
-def get_candidate(candidate_id: str, service: InterviewService = Depends(get_interview_service)):
+def get_candidate(
+    candidate_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_candidate_access),
+):
     return _run(lambda: service.get_candidate(candidate_id))
 
 
 @router.get("/{candidate_id}/interviews", response_model=List[InterviewSummary])
-def list_candidate_interviews(candidate_id: str, service: InterviewService = Depends(get_interview_service)):
-    """Previous interview sessions of this candidate, oldest first."""
+def list_candidate_interviews(
+    candidate_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_candidate_access),
+):
+    """Previous interview sessions of this candidate, oldest first.
+
+    Guest candidates stay readable by id (existing contract). An account-owned
+    candidate requires that account's session.
+    """
     return _run(lambda: service.list_interviews(candidate_id))
 
 
 @router.get("/{candidate_id}/competency-history", response_model=List[CompetencyHistoryEntry])
-def candidate_competency_history(candidate_id: str, service: InterviewService = Depends(get_interview_service)):
+def candidate_competency_history(
+    candidate_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_candidate_access),
+):
     """Every competency update (one per evaluated answer) across this candidate's interviews."""
     return _run(lambda: service.competency_history(candidate_id))

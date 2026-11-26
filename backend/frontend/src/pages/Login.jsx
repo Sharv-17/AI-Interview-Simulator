@@ -1,23 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import AuthShell from '../components/AuthShell.jsx'
 import usePageTitle from '../hooks/usePageTitle.js'
-import {
-  LOGIN_UNAVAILABLE,
-  UNAVAILABLE_NOTE,
-  accountsAvailable,
-  validateEmail,
-  validatePassword,
-} from '../lib/auth.js'
+import { authErrorMessage, validateEmail, validateLoginPassword } from '../lib/auth.js'
+import { useSession } from '../lib/session.js'
 
 export default function Login() {
   usePageTitle('Sign in')
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { signIn } = useSession()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const emailRef = useRef(null)
   const passwordRef = useRef(null)
   const alertRef = useRef(null)
@@ -25,19 +24,26 @@ export default function Login() {
   // Move focus to the notice so mobile users (who submit from below it) see the
   // result without hunting for it. role="alert" still announces it to screen readers.
   useEffect(() => {
-    if (submitted) alertRef.current?.focus()
-  }, [submitted])
+    if (error) alertRef.current?.focus()
+  }, [error])
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-    const nextErrors = { email: validateEmail(email), password: validatePassword(password) }
+    const nextErrors = { email: validateEmail(email), password: validateLoginPassword(password) }
     setErrors(nextErrors)
-    setSubmitted(false)
+    setError('')
     if (nextErrors.email) return emailRef.current?.focus()
     if (nextErrors.password) return passwordRef.current?.focus()
-    // The backend has no authentication endpoint, so no request is made and no
-    // signed-in state is ever claimed. Only the unavailable notice is ever shown.
-    if (!accountsAvailable) setSubmitted(true)
+
+    setBusy(true)
+    try {
+      await signIn({ email: email.trim(), password })
+      const target = location.state?.from || '/dashboard'
+      navigate(target, { replace: true })
+    } catch (err) {
+      setError(authErrorMessage(err))
+      setBusy(false)
+    }
   }
 
   return (
@@ -48,11 +54,9 @@ export default function Login() {
         progress.
       </p>
 
-      {!accountsAvailable && <p className="auth-availability">{UNAVAILABLE_NOTE}</p>}
-
-      {submitted && (
-        <div className="alert alert-warn" role="alert" tabIndex={-1} ref={alertRef}>
-          {LOGIN_UNAVAILABLE}
+      {error && (
+        <div className="alert alert-error" role="alert" tabIndex={-1} ref={alertRef}>
+          {error}
         </div>
       )}
 
@@ -108,12 +112,14 @@ export default function Login() {
           )}
         </div>
 
-        <button type="submit" className="btn btn-primary btn-block">Sign In</button>
+        <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+          {busy ? 'Signing in' : 'Sign In'}
+        </button>
       </form>
 
       <div className="auth-divider">or</div>
 
-      <Link to="/start" className="btn btn-secondary btn-block">Continue as Guest</Link>
+      <Link to="/guest" className="btn btn-secondary btn-block">Continue as Guest</Link>
       <p className="auth-guest-note muted small">
         Guest interviews stay on this device and need no account.
       </p>

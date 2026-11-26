@@ -36,12 +36,63 @@ class Base(DeclarativeBase):
     pass
 
 
+class UserModel(Base):
+    """A registered account.
+
+    `password_hash` holds an Argon2id hash (never the password). Sessions live in
+    `auth_sessions`, not here, so they can be listed and revoked individually.
+    """
+
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    # Stored normalized (trimmed, lower-cased); the unique constraint is the second
+    # line of defence against duplicate registrations.
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+
+
+class AuthSessionModel(Base):
+    """A server-managed login session.
+
+    Only the SHA-256 hash of the opaque token is stored: the raw token exists solely
+    in the client's HttpOnly cookie. Revocation is a timestamp, never a row delete, so
+    a replayed cookie can be told apart from an unknown one.
+    """
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        Index("ix_auth_sessions_user_created", "user_id", "created_at"),
+        Index("ix_auth_sessions_expires", "expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TZ, nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(TZ)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(TZ)
+
+
 class CandidateModel(Base):
     __tablename__ = "candidates"
 
     candidate_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(120))
     external_id: Mapped[Optional[str]] = mapped_column(String(120), unique=True)
+    # The account that owns this candidate, or NULL for a guest candidate.
+    # UNIQUE (NULLs are not compared in PostgreSQL) makes "one account, one candidate"
+    # a database guarantee. ON DELETE SET NULL keeps interview history if an account
+    # is removed: the candidate and its interviews become guest records again.
+    user_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), unique=True
+    )
     created_at: Mapped[datetime] = mapped_column(TZ)
 
 

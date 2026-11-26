@@ -8,6 +8,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // Account routes live under /api/v1/* on the backend and must keep that prefix.
+      // Object order decides which prefix matches first, so this rule comes before /api.
+      '/api/v1': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,

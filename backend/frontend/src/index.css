@@ -153,6 +153,15 @@ img { max-width: 100%; }
 .nav-link:hover,
 .nav-link.active { color: var(--ink); text-decoration: underline; }
 
+/* Same shape as a nav link, but it submits (sign out) rather than navigating. */
+.nav-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
 .site-footer {
   border-top: 1px solid var(--line);
   padding: 24px 0;
@@ -641,17 +650,6 @@ textarea:disabled { background: var(--surface-2); }
   font-size: 0.9375rem;
 }
 
-.auth-availability {
-  margin: 0 0 22px;
-  padding: 10px 12px;
-  border: 1px solid #cfe2d9;
-  border-radius: var(--radius);
-  background: var(--accent-soft);
-  color: #1d3b31;
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-
 .auth-form .field { margin-bottom: 18px; }
 input[type='text'],
 input[type='email'],
@@ -768,6 +766,22 @@ input[type='password'][aria-invalid='true'] { border-color: #bf6a5f; }
   }
   .header-inner nav { gap: 14px; }
 }
+
+/* ---------- Dashboard ---------- */
+.dashboard .section-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+.dashboard .section-head h1 { margin-bottom: 4px; }
+.dashboard .section-head p { margin: 0; }
+.dashboard-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.dashboard-section { margin-top: 34px; }
+.dashboard-section h2 { font-size: 1.25rem; margin-bottom: 14px; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 600px) {

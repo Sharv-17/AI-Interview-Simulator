@@ -1,27 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
 import AuthShell from '../components/AuthShell.jsx'
+import { api } from '../api/client.js'
 import usePageTitle from '../hooks/usePageTitle.js'
 import {
-  REGISTER_UNAVAILABLE,
-  UNAVAILABLE_NOTE,
-  accountsAvailable,
+  MIN_PASSWORD_LENGTH,
+  authErrorMessage,
   validateEmail,
   validateName,
   validatePassword,
   validatePasswordConfirmation,
 } from '../lib/auth.js'
+import { useSession } from '../lib/session.js'
 
 export default function Register() {
   usePageTitle('Create your account')
+  const navigate = useNavigate()
+  const { signIn } = useSession()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const nameRef = useRef(null)
   const emailRef = useRef(null)
   const passwordRef = useRef(null)
@@ -31,10 +35,10 @@ export default function Register() {
   // Move focus to the notice so mobile users (who submit from below it) see the
   // result without hunting for it. role="alert" still announces it to screen readers.
   useEffect(() => {
-    if (submitted) alertRef.current?.focus()
-  }, [submitted])
+    if (error) alertRef.current?.focus()
+  }, [error])
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
     const nextErrors = {
       name: validateName(name),
@@ -43,13 +47,27 @@ export default function Register() {
       confirmation: validatePasswordConfirmation(password, confirmation),
     }
     setErrors(nextErrors)
-    setSubmitted(false)
+    setError('')
     if (nextErrors.name) return nameRef.current?.focus()
     if (nextErrors.email) return emailRef.current?.focus()
     if (nextErrors.password) return passwordRef.current?.focus()
     if (nextErrors.confirmation) return confirmationRef.current?.focus()
-    // No registration endpoint exists, so nothing is sent and no account is claimed.
-    if (!accountsAvailable) setSubmitted(true)
+
+    setBusy(true)
+    try {
+      // The name becomes the display name of the candidate record the account owns.
+      await api.auth.register({
+        email: email.trim(),
+        password,
+        displayName: name.trim(),
+      })
+      // Registration does not open a session, so sign in with the same credentials.
+      await signIn({ email: email.trim(), password })
+      navigate('/dashboard', { replace: true })
+    } catch (err) {
+      setError(authErrorMessage(err))
+      setBusy(false)
+    }
   }
 
   return (
@@ -59,11 +77,12 @@ export default function Register() {
         Keep your interview history and progress together, and pick up where you left off.
       </p>
 
-      {!accountsAvailable && <p className="auth-availability">{UNAVAILABLE_NOTE}</p>}
-
-      {submitted && (
-        <div className="alert alert-warn" role="alert" tabIndex={-1} ref={alertRef}>
-          {REGISTER_UNAVAILABLE}
+      {error && (
+        <div className="alert alert-error" role="alert" tabIndex={-1} ref={alertRef}>
+          {error}
+          {error.includes('already exists') && (
+            <> <Link to="/login">Sign in</Link>.</>
+          )}
         </div>
       )}
 
@@ -97,7 +116,9 @@ export default function Register() {
             aria-invalid={Boolean(errors.email)}
             aria-describedby={errors.email ? 'email-error' : undefined}
           />
-          {errors.email && <p className="field-error" id="email-error">{errors.email}</p>}
+          {errors.email && (
+            <p className="field-error" id="email-error">{errors.email}</p>
+          )}
         </div>
 
         <div className="field">
@@ -112,7 +133,9 @@ export default function Register() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               aria-invalid={Boolean(errors.password)}
-              aria-describedby={errors.password ? 'password-error' : undefined}
+              aria-describedby={
+                errors.password ? 'password-error' : 'password-help'
+              }
             />
             <button
               type="button"
@@ -128,8 +151,12 @@ export default function Register() {
               )}
             </button>
           </div>
-          {errors.password && (
+          {errors.password ? (
             <p className="field-error" id="password-error">{errors.password}</p>
+          ) : (
+            <p className="field-help" id="password-help">
+              At least {MIN_PASSWORD_LENGTH} characters.
+            </p>
           )}
         </div>
 
@@ -151,7 +178,9 @@ export default function Register() {
           )}
         </div>
 
-        <button type="submit" className="btn btn-primary btn-block">Create account</button>
+        <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+          {busy ? 'Creating your account' : 'Create account'}
+        </button>
 
         <p className="auth-terms">
           By creating an account you agree to our <Link to="/terms">Terms and conditions</Link> and{' '}
@@ -161,7 +190,7 @@ export default function Register() {
 
       <div className="auth-divider">or</div>
 
-      <Link to="/start" className="btn btn-secondary btn-block">Continue as Guest</Link>
+      <Link to="/guest" className="btn btn-secondary btn-block">Continue as Guest</Link>
       <p className="auth-guest-note muted small">
         Guest interviews stay on this device and need no account.
       </p>

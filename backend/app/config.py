@@ -115,3 +115,47 @@ ANTHROPIC_BASE_URL = _env_str("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
 OPENAI_API_KEY = _env_str("OPENAI_API_KEY")
 OPENAI_MODEL = _env_str("OPENAI_MODEL")
 OPENAI_BASE_URL = _env_str("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+
+# ---- Account authentication (Phase 5) ----------------------------------------
+# Sessions are opaque random tokens delivered in an HttpOnly cookie; only a SHA-256
+# hash of the token is stored, so a database dump cannot be replayed as a login.
+# Expiry is absolute and enforced server-side (no sliding extension of expires_at).
+AUTH_SESSION_TTL_SECONDS = _env_positive_int("AUTH_SESSION_TTL_SECONDS", 7 * 24 * 60 * 60)
+AUTH_SESSION_COOKIE_NAME = _env_str("AUTH_SESSION_COOKIE_NAME", "ais_session")
+
+# Secure must stay on wherever the site is served over HTTPS. It defaults to on;
+# only a plain-HTTP development machine should set AUTH_COOKIE_SECURE=false.
+AUTH_COOKIE_SECURE = _env_bool("AUTH_COOKIE_SECURE", True)
+AUTH_COOKIE_SAMESITE = _env_str("AUTH_COOKIE_SAMESITE", "lax").lower()
+if AUTH_COOKIE_SAMESITE not in {"lax", "strict"}:
+    raise ValueError(
+        f"Environment variable AUTH_COOKIE_SAMESITE must be 'lax' or 'strict', got {AUTH_COOKIE_SAMESITE!r}"
+    )
+# Empty means "host-only cookie" (recommended).
+AUTH_COOKIE_DOMAIN = _env_str("AUTH_COOKIE_DOMAIN") or None
+
+# last_used_at is only written when it is older than this, so a session is not a
+# write on every request.
+AUTH_SESSION_TOUCH_SECONDS = _env_positive_int("AUTH_SESSION_TOUCH_SECONDS", 60)
+
+# Failed login attempts allowed per email and per client address, per window.
+AUTH_LOGIN_RATE_LIMIT_ATTEMPTS = _env_positive_int("AUTH_LOGIN_RATE_LIMIT_ATTEMPTS", 10)
+AUTH_LOGIN_IP_RATE_LIMIT_ATTEMPTS = _env_positive_int("AUTH_LOGIN_IP_RATE_LIMIT_ATTEMPTS", 50)
+AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS = _env_positive_int("AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS", 300)
+# Registration attempts allowed per client address, per window.
+AUTH_REGISTER_RATE_LIMIT_ATTEMPTS = _env_positive_int("AUTH_REGISTER_RATE_LIMIT_ATTEMPTS", 20)
+AUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS = _env_positive_int("AUTH_REGISTER_RATE_LIMIT_WINDOW_SECONDS", 3600)
+
+# Origins allowed to make cookie-authenticated state-changing requests (CSRF).
+# Comma separated, e.g. "https://app.example.com,https://www.example.com".
+# When empty, only same-origin requests are accepted (Origin host == request host).
+AUTH_ALLOWED_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in _env_str("AUTH_ALLOWED_ORIGINS").split(",")
+    if origin.strip()
+)
+
+# Set when the application sits behind a reverse proxy that terminates TLS and sets
+# X-Forwarded-For; otherwise the socket address is used for rate limiting.
+AUTH_TRUST_PROXY = _env_bool("AUTH_TRUST_PROXY", False)

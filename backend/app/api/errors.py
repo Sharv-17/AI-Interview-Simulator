@@ -10,6 +10,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from app.services.auth_errors import AuthError
 from app.services.evaluation_errors import (
     AnswerAlreadySubmittedError,
     AnswerNotFoundError,
@@ -32,6 +33,9 @@ def coded(status: int, code: str, message: str, headers: Optional[dict] = None) 
 
 def http_error_for(exc: Exception) -> Optional[HTTPException]:
     """Return the HTTPException for a known domain error, or None for unknown ones."""
+    if isinstance(exc, AuthError):
+        # Authentication errors carry their own status, code and safe message.
+        return coded(exc.status_code, exc.code, exc.message, exc.headers)
     if isinstance(exc, InterviewNotFoundError):
         return HTTPException(status_code=404, detail="Interview not found")
     if isinstance(exc, CandidateNotFoundError):

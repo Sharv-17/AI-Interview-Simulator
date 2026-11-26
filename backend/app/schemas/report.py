@@ -3,7 +3,8 @@
 Contains answers, scores, timing and integrity indicators. It NEVER contains the
 reference answer or the rubric (expected concepts / evaluation criteria).
 
-There is no authentication in this backend: a deployment must put this endpoint
+Reports of account-owned interviews require that account's session (see
+app/api/auth_deps.py). A deployment must also consider this endpoint
 (and the candidate history endpoints) behind access control.
 """
 

@@ -4,11 +4,18 @@ Request/response plumbing only: validate with Pydantic, call InterviewService,
 translate domain errors to HTTP (see api/errors.py). No interview rules live here.
 """
 
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 
+from app.api.auth_deps import (
+    get_optional_current_user,
+    require_candidate_usable,
+    require_interview_access,
+)
 from app.api.errors import http_error_for
+from app.services.auth_service import AuthService, get_auth_service
+from app.services.auth_store import UserRecord
 from app.schemas.competency import CompetencyState
 from app.schemas.evaluation import (
     AnswerSubmitRequest,
@@ -42,14 +49,26 @@ def _run(operation):
 
 @router.post("/start", response_model=InterviewResponse, status_code=201)
 def start_interview(
-    request: InterviewStartRequest, service: InterviewService = Depends(get_interview_service)
+    request: InterviewStartRequest,
+    service: InterviewService = Depends(get_interview_service),
+    user: Optional[UserRecord] = Depends(get_optional_current_user),
+    auth: AuthService = Depends(get_auth_service),
 ) -> InterviewResponse:
-    """Start a new interview session and return it."""
+    """Start a new interview session and return it.
+
+    Guests (no session) keep working exactly as before, with or without a candidate.
+    A signed-in account may only use its own candidate id.
+    """
+    require_candidate_usable(request.candidate_id, user, auth)
     return _run(lambda: service.start_interview(request))
 
 
 @router.get("/{interview_id}", response_model=InterviewResponse)
-def get_interview(interview_id: str, service: InterviewService = Depends(get_interview_service)) -> InterviewResponse:
+def get_interview(
+    interview_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
+) -> InterviewResponse:
     """Retrieve an interview: state, current question, deadline and the next action to take."""
     return _run(lambda: service.get_interview(interview_id))
 
@@ -60,6 +79,7 @@ def submit_answer(
     request: AnswerSubmitRequest,
     response: Response,
     service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
 ) -> AnswerSubmitResponse:
     """Submit the answer to the current question.
 
@@ -78,6 +98,7 @@ def retry_evaluation(
     request: RetryEvaluationRequest,
     response: Response,
     service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
 ) -> AnswerSubmitResponse:
     """Re-run evaluation for an already-saved answer. Idempotent: an answer that is already
     scored returns its stored result (the evaluator is not called and competency is not updated again)."""
@@ -93,6 +114,7 @@ def transcribe_answer_audio(
     question_id: str = Form(..., min_length=1),
     audio: UploadFile = File(...),
     service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
 ) -> TranscriptionResponse:
     """Turn a recorded spoken answer into text for the candidate to review.
 
@@ -124,7 +146,11 @@ def transcribe_answer_audio(
 
 
 @router.post("/{interview_id}/next", response_model=InterviewResponse)
-def advance_interview(interview_id: str, service: InterviewService = Depends(get_interview_service)) -> InterviewResponse:
+def advance_interview(
+    interview_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
+) -> InterviewResponse:
     """Move to the next question, or complete the interview.
 
     The current question must be resolved: scored, timed out, or its evaluation
@@ -138,6 +164,7 @@ def report_integrity_events(
     interview_id: str,
     request: IntegrityEventsRequest,
     service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
 ) -> IntegrityEventsResponse:
     """Record client-reported copy/paste/tab-switch/focus events for the CURRENT question.
 
@@ -148,7 +175,9 @@ def report_integrity_events(
 
 @router.get("/{interview_id}/competency", response_model=Dict[str, CompetencyState])
 def get_interview_competency(
-    interview_id: str, service: InterviewService = Depends(get_interview_service)
+    interview_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
 ) -> Dict[str, CompetencyState]:
     """Return this interview's current estimated competency state (read-only)."""
     return _run(lambda: service.competency(interview_id))
@@ -156,11 +185,13 @@ def get_interview_competency(
 
 @router.get("/{interview_id}/report", response_model=InterviewReport)
 def get_interview_report(
-    interview_id: str, service: InterviewService = Depends(get_interview_service)
+    interview_id: str,
+    service: InterviewService = Depends(get_interview_service),
+    _access: None = Depends(require_interview_access),
 ) -> InterviewReport:
     """Reviewer report: answers, scores, timing, competency and integrity indicators.
 
-    Never contains the reference answer or rubric. NOTE: there is no authentication in
-    this backend; protect this endpoint before any real deployment.
+    Never contains the reference answer or rubric. When the interview belongs to a
+    registered account, that account's session is required (see api/auth_deps.py).
     """
     return _run(lambda: service.report(interview_id))

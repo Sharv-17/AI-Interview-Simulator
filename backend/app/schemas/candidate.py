@@ -9,7 +9,12 @@ from app.schemas.interview import DifficultyLevel, InterviewStatus
 
 
 class CandidateCreate(BaseModel):
-    """Candidates are lightweight records: there is no login in this backend."""
+    """Candidates are lightweight records, created without an account.
+
+    Registered accounts get a candidate of their own at registration (linked through
+    `candidates.user_id`); this endpoint still creates an unowned *guest* candidate and
+    needs no session.
+    """
 
     display_name: Optional[str] = Field(default=None, max_length=120)
     external_id: Optional[str] = Field(default=None, max_length=120, description="Caller's own identifier, unique.")

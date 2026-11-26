@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api/client.js'
 import usePageTitle from '../hooks/usePageTitle.js'
 import { saveRecentSession } from '../lib/recentSessions.js'
+import { useSession } from '../lib/session.js'
 
 const DIFFICULTIES = [
   { value: 'easy', label: 'Easy', hint: 'Definitions and core ideas' },
@@ -13,6 +14,7 @@ const DIFFICULTIES = [
 export default function Start() {
   usePageTitle('Start an interview')
   const navigate = useNavigate()
+  const { user, candidate } = useSession()
   const [params] = useSearchParams()
   const [topics, setTopics] = useState([])
   const [loadError, setLoadError] = useState('')
@@ -50,14 +52,24 @@ export default function Start() {
     }
     setSubmitting(true)
     try {
-      const interview = await api.startInterview({ topic, difficulty, questionCount: count })
-      saveRecentSession({
-        id: interview.interview_id,
-        topic: interview.topic,
-        difficulty: interview.difficulty,
-        questionCount: interview.question_count,
-        startedAt: new Date().toISOString(),
+      // A signed-in account starts the interview against its own candidate, which is
+      // what makes the interview show up in its dashboard. Guests send no id.
+      const interview = await api.startInterview({
+        topic,
+        difficulty,
+        questionCount: count,
+        candidateId: user ? candidate?.candidate_id : undefined,
       })
+      // The device-local list is for guests only; accounts have server-side history.
+      if (!user) {
+        saveRecentSession({
+          id: interview.interview_id,
+          topic: interview.topic,
+          difficulty: interview.difficulty,
+          questionCount: interview.question_count,
+          startedAt: new Date().toISOString(),
+        })
+      }
       navigate(`/interview/${interview.interview_id}`)
     } catch (err) {
       setError(err.message)

@@ -1,6 +1,9 @@
 // Thin wrapper around the FastAPI backend.
-// In development, Vite forwards /api/* to http://localhost:8000 (see vite.config.js).
-// In production, set VITE_API_BASE_URL to the backend's public URL.
+//
+// The browser only ever talks to its own origin: /api/* is forwarded to FastAPI by the
+// dev server (vite.config.js) and by the reverse proxy in production (vercel.json).
+// Sign-in uses an HttpOnly session cookie, so every request is same-origin with
+// credentials and no token is ever readable from JavaScript.
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
@@ -10,6 +13,12 @@ export class ApiError extends Error {
     this.status = status
     this.code = code
   }
+}
+
+// Pydantic prefixes its validator messages with "Value error, ". Strip it so a field
+// error reads like a sentence.
+function cleanValidationMessage(message) {
+  return String(message || '').replace(/^Value error,\s*/, '')
 }
 
 // The backend returns errors in three shapes:
@@ -25,13 +34,14 @@ function toApiError(status, body) {
   if (Array.isArray(detail) && detail.length > 0) {
     const first = detail[0]
     const field = Array.isArray(first.loc) ? first.loc[first.loc.length - 1] : 'input'
-    return new ApiError(status, 'validation_error', `${field}: ${first.msg}`)
+    return new ApiError(status, 'validation_error', `${field}: ${cleanValidationMessage(first.msg)}`)
   }
   return new ApiError(status, null, `Request failed (HTTP ${status}).`)
 }
 
 async function request(path, { method = 'GET', json, form } = {}) {
-  const init = { method, headers: {} }
+  // same-origin: the session cookie is sent, and it is never exposed to this code.
+  const init = { method, credentials: 'same-origin', headers: {} }
   if (json !== undefined) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(json)
@@ -77,10 +87,17 @@ export const api = {
   listQuestions: () => request('/questions'),
   getQuestion: (questionId) => request(`/questions/${encodeURIComponent(questionId)}`),
 
-  startInterview: ({ topic, difficulty, questionCount }) =>
+  // candidate_id is sent only for a signed-in account (its own candidate, from
+  // /api/v1/candidates/me). Guests keep starting anonymous interviews.
+  startInterview: ({ topic, difficulty, questionCount, candidateId }) =>
     request('/interview/start', {
       method: 'POST',
-      json: { topic, difficulty, question_count: questionCount },
+      json: {
+        topic,
+        difficulty,
+        question_count: questionCount,
+        ...(candidateId ? { candidate_id: candidateId } : {}),
+      },
     }),
 
   getInterview: (id) => request(`/interview/${encodeURIComponent(id)}`),
@@ -115,4 +132,24 @@ export const api = {
     }),
 
   getReport: (id) => request(`/interview/${encodeURIComponent(id)}/report`),
+
+  // Account endpoints. The /api/v1 prefix is preserved by the proxy (see vercel.json),
+  // unlike the interview routes above where the proxy strips a leading /api.
+  auth: {
+    register: ({ email, password, displayName }) =>
+      request('/v1/auth/register', {
+        method: 'POST',
+        json: {
+          email,
+          password,
+          ...(displayName ? { display_name: displayName } : {}),
+        },
+      }),
+    login: ({ email, password }) =>
+      request('/v1/auth/login', { method: 'POST', json: { email, password } }),
+    logout: () => request('/v1/auth/logout', { method: 'POST' }),
+    me: () => request('/v1/auth/me'),
+    candidate: () => request('/v1/candidates/me'),
+    interviews: () => request('/v1/interviews/me'),
+  },
 }

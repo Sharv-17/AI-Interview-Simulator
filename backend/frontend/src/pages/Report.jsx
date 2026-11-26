@@ -18,24 +18,41 @@ export default function Report() {
   const { id } = useParams()
   usePageTitle('Interview report')
   const [report, setReport] = useState(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
     api
       .getReport(id)
       .then((data) => !cancelled && setReport(data))
-      .catch((err) => !cancelled && setError(err.message))
+      .catch((err) => !cancelled && setError(err))
     return () => {
       cancelled = true
     }
   }, [id])
 
+  // A report belongs to whoever owns the interview. For an account that is a session;
+  // for a guest interview the id is the only key, so those links keep working.
+  if (error?.status === 401) {
+    return (
+      <div className="container narrow section">
+        <h1>Sign in to view this report</h1>
+        <p className="muted">
+          This report belongs to an account. Sign in with the account that took the interview.
+        </p>
+        <p>
+          <Link to="/login" className="btn btn-primary">Sign in</Link>{' '}
+          <Link to="/guest" className="btn btn-secondary">Continue as guest</Link>
+        </p>
+      </div>
+    )
+  }
+
   if (error) {
     return (
       <div className="container narrow section">
         <h1>Report not available</h1>
-        <div className="alert alert-error" role="alert">{error}</div>
+        <div className="alert alert-error" role="alert">{error.message}</div>
         <p><Link to="/">Back to home</Link></p>
       </div>
     )

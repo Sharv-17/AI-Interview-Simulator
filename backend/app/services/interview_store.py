@@ -73,6 +73,16 @@ class InterviewStore(ABC):
     def check_ready(self) -> None:
         """Raise if the store cannot serve requests (e.g. database unreachable)."""
 
+    def register_candidate(
+        self, candidate_id: str, created_at: datetime, display_name: Optional[str] = None
+    ) -> None:
+        """Make a candidate created outside this store usable by it.
+
+        Only the memory backend needs this: it keeps its own candidate registry, while
+        PostgreSQL already holds the row the account store inserted. A no-op here.
+        """
+        return None
+
     def startup(self) -> None:
         """Optional one-time preparation at application start (e.g. seed reference data)."""
         return None
@@ -165,6 +175,21 @@ class MemoryInterviewStore(InterviewStore):
         if candidate_id not in self._candidates:
             raise CandidateNotFoundError()
         return self._candidates[candidate_id]
+
+    def register_candidate(
+        self, candidate_id: str, created_at: datetime, display_name: Optional[str] = None
+    ) -> None:
+        """Register a candidate created by the account layer (registration)."""
+        with self._creation_guard:
+            self._candidates.setdefault(
+                candidate_id,
+                CandidateView(
+                    candidate_id=candidate_id,
+                    display_name=display_name,
+                    external_id=None,
+                    created_at=created_at,
+                ),
+            )
 
     def _sessions_of(self, candidate_id: str) -> List[InterviewSession]:
         self.get_candidate(candidate_id)

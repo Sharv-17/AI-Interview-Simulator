@@ -1,8 +1,16 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useSession } from '../lib/session.js'
 import { site } from '../siteConfig.js'
 
 export default function Layout() {
   const year = new Date().getFullYear()
+  const navigate = useNavigate()
+  const { user, signOut } = useSession()
+
+  async function handleSignOut() {
+    await signOut()
+    navigate('/', { replace: true })
+  }
   return (
     <div className="page">
       <a className="skip-link" href="#main">Skip to content</a>
@@ -14,7 +22,19 @@ export default function Layout() {
           </Link>
           <nav aria-label="Main">
             <NavLink to="/start" className="nav-link">Start an interview</NavLink>
-            <NavLink to="/login" className="nav-link">Sign in</NavLink>
+            {user ? (
+              <>
+                <NavLink to="/dashboard" className="nav-link">Dashboard</NavLink>
+                <button type="button" className="nav-link nav-button" onClick={handleSignOut}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <NavLink to="/guest" className="nav-link">Guest</NavLink>
+                <NavLink to="/login" className="nav-link">Sign in</NavLink>
+              </>
+            )}
           </nav>
         </div>
       </header>
