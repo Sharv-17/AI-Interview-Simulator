@@ -199,7 +199,8 @@ export default function Report() {
       </section>
 
       <p className="muted small">
-        Anyone with the link to this page can open it. Share it only with people you want to see your answers.
+        A guest interview report can be opened by anyone who has the link, so share it only with people you
+        want to see your answers. A report from an account opens only when signed in to that account.
       </p>
       <p className="no-print"><Link to="/start" className="btn btn-primary">Start another interview</Link></p>
     </div>

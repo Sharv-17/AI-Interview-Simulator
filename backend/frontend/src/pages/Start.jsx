@@ -14,7 +14,7 @@ const DIFFICULTIES = [
 export default function Start() {
   usePageTitle('Start an interview')
   const navigate = useNavigate()
-  const { user, candidate } = useSession()
+  const { user, candidate, loading: sessionLoading } = useSession()
   const [params] = useSearchParams()
   const [topics, setTopics] = useState([])
   const [loadError, setLoadError] = useState('')
@@ -45,6 +45,9 @@ export default function Start() {
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
+    // Wait for /auth/me: submitting sooner would start a guest interview for somebody
+    // who is actually signed in, and it would never appear on their dashboard.
+    if (sessionLoading) return
     const count = Number(questionCount)
     if (!topic) return setError('Choose a topic.')
     if (!Number.isInteger(count) || count < 1 || count > 20) {
@@ -141,7 +144,11 @@ export default function Start() {
         )}
 
         <div className="actions">
-          <button type="submit" className="btn btn-primary" disabled={submitting || topics.length === 0}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={submitting || topics.length === 0 || sessionLoading}
+          >
             {submitting ? 'Starting' : 'Start'}
           </button>
         </div>

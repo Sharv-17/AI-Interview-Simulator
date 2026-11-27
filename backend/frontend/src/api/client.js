@@ -151,5 +151,10 @@ export const api = {
     me: () => request('/v1/auth/me'),
     candidate: () => request('/v1/candidates/me'),
     interviews: () => request('/v1/interviews/me'),
+    // The candidate-history routes keep their guest contract, but a candidate owned by an
+    // account answers 401 without that account's session, so this is only ever called
+    // with the signed-in account's own candidate id.
+    competencyHistory: (candidateId) =>
+      request(`/candidates/${encodeURIComponent(candidateId)}/competency-history`),
   },
 }

@@ -108,7 +108,7 @@ export default function Interview() {
     let cancelled = false
     Promise.resolve()
       .then(refresh)
-      .catch((err) => !cancelled && setLoadError(err.message))
+      .catch((err) => !cancelled && setLoadError(err))
     return () => {
       cancelled = true
     }
@@ -261,11 +261,29 @@ export default function Interview() {
 
   // ---- render ---------------------------------------------------------------------
 
+  // An account-owned interview answers 401 without its owner's session. Guest
+  // interviews never do, so they keep opening from a direct link as before.
+  if (loadError?.status === 401) {
+    return (
+      <div className="container narrow section">
+        <h1>Sign in to continue this interview</h1>
+        <p className="muted">
+          This interview belongs to an account. Sign in with the account that started it to pick it up where
+          you left off.
+        </p>
+        <p>
+          <Link to="/login" state={{ from: `/interview/${id}` }} className="btn btn-primary">Sign in</Link>{' '}
+          <Link to="/guest" className="btn btn-secondary">Continue as guest</Link>
+        </p>
+      </div>
+    )
+  }
+
   if (loadError) {
     return (
       <div className="container narrow section">
         <h1>Interview not available</h1>
-        <div className="alert alert-error" role="alert">{loadError}</div>
+        <div className="alert alert-error" role="alert">{loadError.message}</div>
         <p><Link to="/start">Start a new interview</Link></p>
       </div>
     )

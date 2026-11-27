@@ -33,8 +33,11 @@ function HomeRoute() {
 
 function LoginRoute() {
   const { user, loading } = useSession()
+  const location = useLocation()
   if (loading) return <SessionLoading />
-  return user ? <Navigate to="/dashboard" replace /> : <Login />
+  // Honour the page that sent them here (an interview or report link), like Login does
+  // after signing in. Without this, the redirect would discard that target.
+  return user ? <Navigate to={location.state?.from || '/dashboard'} replace /> : <Login />
 }
 
 function RegisterRoute() {
