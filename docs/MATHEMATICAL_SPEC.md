@@ -7,7 +7,27 @@ Code: `backend/app/services/adaptive_metrics.py` (pure functions) and
 `backend/tests/test_adaptive_metrics.py`.
 
 **None of these formulas have been empirically validated.** Apart from θ,
-they are implementation hypotheses.They are used by the question selector (section 6) but are not validated experimentally.
+they are implementation hypotheses. They are used by the question selector (section 6),
+but no experiment has validated them.
+
+## Implementation map (verified 2026-11-27)
+
+| Piece | Code | Verified value / behaviour |
+|---|---|---|
+| θ update | `services/competency_state.py` | `(1-0.15)·θ + 0.15·S`, clamp `[0,1]`, lazy start at 0.5 |
+| α | `schemas/competency.py` | `EMA_ALPHA = 0.15`, a constant, not configurable |
+| H(θ) | `services/adaptive_metrics.py:bernoulli_entropy` | `-θ·log₂θ - (1-θ)·log₂(1-θ)`, rejects values outside `[0,1]` |
+| IDI | `services/adaptive_metrics.py:idi` | **Alias**: `return competency_entropy(theta)`; not independently computed |
+| DifficultyFit | `services/adaptive_metrics.py:difficulty_fit` | `1 - |θ - d|`, `None` for an unknown label |
+| QScore | `services/adaptive_metrics.py:qscore` | `0.5·IDI + 0.5·Fit`, weights validated to sum to 1 |
+| Ranking | `services/adaptive_metrics.py:rank_by_qscore` | Descending, 12-decimal tie rounding, id-ascending, `None` excluded |
+| Selector use | `services/question_selector.py:score_candidates` | Calls `score_candidate` per eligible question; does not reimplement the formula |
+| Anti-streak | `services/question_selector.py` | `STREAK_LIMIT = 3`, hard pre-filter, not a QScore term |
+
+**θ is per interview.** `InterviewSession` owns one `CompetencyStateStore`, so every new
+interview starts every competency at 0.5 again. θ is comparable inside one interview only;
+the dashboard therefore reports in-interview movement, never cross-interview growth. See
+[decisions/0001-ema-alpha-0.15.md](decisions/0001-ema-alpha-0.15.md).
 
 ## Status of each component
 

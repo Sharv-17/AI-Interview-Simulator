@@ -1,16 +1,35 @@
-# React + Vite
+# Frontend (React + Vite)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The React 19 single-page app for the AI Interview Simulator. It is served from its own origin
+and proxies `/api` to the FastAPI backend, so the session cookie stays first-party.
 
-Currently, two official plugins are available:
+## Run it
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev        # http://localhost:5173, expects the API on http://localhost:8000
+```
 
-## React Compiler
+## Build and check
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run lint
+npm run build
+npm run check:launch   # deployment checklist; fails while TODO_ placeholders remain
+```
 
-## Expanding the ESLint configuration
+## Where to read more
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- [SETUP.md](SETUP.md) — file map, routes, account behaviour, same-origin deployment.
+- [../../docs/FRONTEND.md](../../docs/FRONTEND.md) — architecture, state, interview-room
+  behaviour, error states.
+- [../../docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md) — full local setup, environment
+  variables and deployment requirements.
+
+## Configuration
+
+- `VITE_API_BASE_URL` (default `/api`) must stay relative in the supported deployment.
+- `src/siteConfig.js` holds site identity and legal values, plus `MAX_RECORDING_SECONDS` and
+  `MAX_ANSWER_CHARS`, which must match the backend settings.
+- `vite.config.js` keeps `changeOrigin: false` because the backend's CSRF check compares the
+  request `Origin` with its `Host`.

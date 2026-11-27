@@ -18,11 +18,14 @@ the same candidate mechanism.
 | Can the backend verify guest ownership? | **No.** A `candidate_id` (or `interview_id`) is a bare identifier; holding it is the only thing that grants access. |
 | How are interviews linked to a candidate? | `interview_sessions.candidate_id` (nullable, `ON DELETE RESTRICT`). Nothing else. |
 | Does the frontend store guest identity? | Only `ais.recentSessions` in `localStorage` (a list of interview ids for display). That is browser history, **not** proof of server-side ownership. |
-| Where do interviews live? | PostgreSQL (`interview_sessions`, `interview_answers`, …) or the in-memory store for development. `localStorage` only mirrors ids. |
+| Where do interviews live? | PostgreSQL (`interview_sessions`, `candidate_answers`, …) or the in-memory store for development. `localStorage` only mirrors ids. |
 
-The React client never sends a `candidate_id`: every interview it starts is anonymous.
-Candidate-aware behaviour (cooldown rotation, competency history) is exercised through
-the API contract, not through the current UI.
+The React client only ever sends the candidate id the server reported for the signed-in
+account (`GET /api/v1/candidates/me`). Guest interviews are still started with no
+`candidate_id` at all, so they remain anonymous. The browser never accepts a candidate id
+from storage or from the user, and a client-supplied id is never treated as ownership.
+Candidate-aware behaviour (cooldown rotation, competency history) therefore works for
+accounts and is absent for guests.
 
 **Consequence:** a client-supplied `candidate_id` can never be treated as authentication.
 Nothing in this change does that.
@@ -224,7 +227,8 @@ hash, a token, a session id, a database message or an email address.
 Documented, deliberately short (NIST SP 800-63B style): **12–128 characters**, no
 composition rules, no forced rotation, no "must contain a symbol". Unicode is accepted.
 Hashing is Argon2id via `argon2-cffi` with `time_cost=3`, `memory_cost=64 MiB`,
-`parallelism=4`, `hash_len=32`, `salt_len=16` (~80 ms/hash).
+`parallelism=4`, `hash_len=32`, `salt_len=16` (on the order of 100 ms per hash on a
+developer machine; hardware-dependent).
 
 ---
 
@@ -331,8 +335,9 @@ No secret is required: session tokens are random, not signed. Nothing here belon
 
 ### CORS and cookie scope (deployment-critical)
 
-The backend has **no `CORSMiddleware`**, and `backend/frontend/SETUP.md` only tells an
-operator to add one by hand. Two separate things must both be right:
+The backend has **no `CORSMiddleware`**. The documented deployment keeps the UI on the
+same site as the API (the frontend proxies `/api/*`), so none is needed there; a
+split-origin deployment must add it. Two separate things must both be right:
 
 1. **CORS.** `app.your-domain.com` calling `api.your-domain.com` is a cross-origin
    request: without CORS middleware the browser blocks it. It must be configured with
@@ -375,8 +380,9 @@ export AUTH_COOKIE_SECURE=false        # plain HTTP on localhost
 uvicorn app.main:app --reload
 ```
 
-With `STORAGE_BACKEND=postgres` (or `DATABASE_URL` set), accounts and sessions are stored
-in PostgreSQL and survive restarts; run `alembic upgrade head` first.
+With `STORAGE_BACKEND=postgres` — or with `DATABASE_URL` set while `STORAGE_BACKEND` is
+unset — accounts and sessions are stored in PostgreSQL and survive restarts; run
+`alembic upgrade head` first.
 
 ---
 
@@ -400,7 +406,7 @@ candidate survives with `user_id IS NULL` and that an existing interview row is 
 there. Each test creates and drops its own schema, so `public` is never touched; without
 `TEST_DATABASE_URL` the module skips.
 
-### Verified against a real PostgreSQL (2026-11-26)
+### Recorded PostgreSQL run (2026-11-26; not re-run in this audit)
 
 | Item | Result |
 | --- | --- |
@@ -448,3 +454,13 @@ The React app in `backend/frontend` uses this API:
    `localStorage`.
 7. Guest claim is still not available (§7); nothing pretends to import guest history.
 8. Every `/api/v1/*` response is sent with `Cache-Control: no-store`, including errors.
+
+---
+
+## Related documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md#8-authentication-and-ownership) — auth in the system diagram.
+- [API.md](API.md#accounts-apiv1) — request/response schemas for every account endpoint.
+- [DATABASE.md](DATABASE.md#1-tables) — `users`, `auth_sessions` and `candidates.user_id`.
+- [FRONTEND.md](FRONTEND.md#3-session-and-api-integration) — how the SPA consumes the session.
+- [DEVELOPMENT.md](DEVELOPMENT.md#9-deployment) — deployment and cookie-scope checklist.

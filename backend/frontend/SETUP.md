@@ -3,17 +3,15 @@
 All paths below are relative to the repository root (`AI-Interview-Simulator/`).
 The frontend lives in `backend/frontend/`, where your Vite project already is.
 
-## 1. Delete these Vite starter files
+## 1. What is in this folder
 
-```
-backend/frontend/src/App.css
-backend/frontend/src/assets/            (whole folder: hero.png, react.svg, vite.svg)
-backend/frontend/public/icons.svg
-```
+The application is already in place. The Vite starter files it replaced (`src/App.css`,
+`src/assets/`, `public/icons.svg`) are not part of the project, so nothing has to be deleted
+before running it.
 
-## 2. Put each file in place
+## 2. File map
 
-Replace the file if it already exists, create it if it does not.
+Every file below exists in the repository; the table explains what each one does.
 
 | File | What it does |
 |---|---|
@@ -42,7 +40,7 @@ Replace the file if it already exists, create it if it does not.
 | `backend/frontend/src/components/AuthShell.jsx` | Two-column layout used by the sign-in and registration pages |
 | `backend/frontend/src/components/EvaluationPanel.jsx` | Score and feedback block |
 | `backend/frontend/src/components/ScoreChart.jsx` | Bar chart on the report |
-| `backend/frontend/src/pages/Home.jsx` | `/` |
+| `backend/frontend/src/pages/Home.jsx` | `/guest` (landing page) |
 | `backend/frontend/src/pages/Start.jsx` | `/start` |
 | `backend/frontend/src/pages/Interview.jsx` | `/interview/:id` |
 | `backend/frontend/src/pages/Report.jsx` | `/report/:id` |
@@ -68,6 +66,9 @@ cp .env.example .env                       # Windows: copy .env.example .env
 ```
 
 Open `backend/.env` and set `LLM_PROVIDER` and its API key. Without them, answers are saved but not scored.
+The example file sets `STORAGE_BACKEND=postgres`, so also set `DATABASE_URL` and run
+`alembic upgrade head`; alternatively set `STORAGE_BACKEND=memory` to skip PostgreSQL (data is
+lost on restart). See [../../docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md).
 
 ```bash
 uvicorn app.main:app --reload --env-file .env

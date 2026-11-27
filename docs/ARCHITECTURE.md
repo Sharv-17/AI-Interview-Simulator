@@ -1,633 +1,305 @@
-# AI Interview Simulator — System Architecture
+# System Architecture
 
-## 1. Architecture Overview
+This document describes the system that exists in this repository. Where something is
+planned rather than built it is labelled **Not implemented**. Endpoint-level detail lives in
+[API.md](API.md); persistence in [DATABASE.md](DATABASE.md); the adaptive mathematics in
+[MATHEMATICAL_SPEC.md](MATHEMATICAL_SPEC.md).
 
-The AI Interview Simulator follows a modular client-server architecture.
+## 1. Components
 
-The system consists of:
+| Component | Location | Responsibility |
+| --- | --- | --- |
+| React SPA | `backend/frontend/` | Setup, interview, report, accounts, dashboard; timer, recording, integrity capture |
+| FastAPI app | `backend/app/main.py` | Routers, middleware, health, exception mapping |
+| API layer | `backend/app/api/` | Validation, dependencies (session/CSRF/ownership), HTTP error mapping |
+| Interview service | `backend/app/services/interview_service.py` | One API operation per call, inside a per-interview transaction |
+| Interview domain | `backend/app/services/interview_engine.py` | All interview rules: answers, timing, integrity, competency, progression |
+| Question selector | `backend/app/services/question_selector.py` | Cold start, adaptive ranking, cooldown rotation, anti-streak |
+| Adaptive metrics | `backend/app/services/adaptive_metrics.py` | Pure θ → H → IDI → Fit → QScore functions |
+| Evaluators | `backend/app/services/rubric_evaluator.py`, `llm_providers.py` | Structured rubric scoring through a pluggable LLM provider |
+| Transcription | `backend/app/services/transcription_service.py`, `whisper_provider.py` | Audio → text, timeout, typed errors |
+| Stores | `backend/app/services/interview_store.py`, `backend/app/db/postgres_store.py` | Load/persist an interview transactionally |
+| Question bank | `backend/data/question_bank.json` (generated from `.csv`) | 827 questions with review status and rubric metadata |
 
-- Frontend
-- Backend API
-- Interview Engine
-- AI Question Generation
-- AI Answer Evaluation
-- Voice Processing
-- Interview Integrity Module
-- Database
+## 2. System diagram
 
-The architecture is designed so that both voice and text responses use the same interview and evaluation pipeline.
+```mermaid
+flowchart TB
+    subgraph Client["Browser (same origin)"]
+        UI["React pages<br/>App.jsx routes"]
+        API_CLIENT["src/api/client.js<br/>credentials: same-origin"]
+        LS["localStorage<br/>ais.recentSessions<br/>(guest ids only)"]
+        UI --> API_CLIENT
+        UI --> LS
+    end
 
----
+    subgraph Edge["Same-origin proxy"]
+        DEV["Vite dev proxy<br/>/api/v1 keeps prefix<br/>/api strips prefix"]
+        PROD["vercel.json rewrites"]
+    end
 
-## 2. High-Level Architecture
+    subgraph Backend["FastAPI backend"]
+        ROUTES["Routers<br/>interview · questions · candidates<br/>auth · account"]
+        DEPS["auth_deps<br/>session · CSRF · ownership"]
+        SVC["InterviewService"]
+        DOMAIN["InterviewSession<br/>(domain rules)"]
+        SEL["select_next_question"]
+        EVAL["evaluate_answer"]
+        STT["transcribe_audio"]
+        STORE["InterviewStore"]
+        ROUTES --> DEPS --> SVC --> DOMAIN
+        DOMAIN --> SEL
+        SVC --> EVAL
+        ROUTES --> STT
+        SVC --> STORE
+    end
+
+    subgraph External["External / optional"]
+        LLM["Anthropic or<br/>OpenAI-compatible API"]
+        WHISPER["faster-whisper<br/>(local model)"]
+        DB[("PostgreSQL")]
+    end
+
+    API_CLIENT --> DEV --> ROUTES
+    API_CLIENT --> PROD --> ROUTES
+    EVAL --> LLM
+    STT --> WHISPER
+    STORE --> DB
+    STORE -. "STORAGE_BACKEND=memory" .-> MEM["in-process sessions"]
+```
+
+## 3. Backend layering
+
+The layering is strict and one-directional:
 
 ```text
-                         ┌──────────────────────┐
-                         │         USER         │
-                         └──────────┬───────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │      FRONTEND        │
-                         │   React + Vite       │
-                         │                      │
-                         │ • Interview Setup    │
-                         │ • Interview Screen   │
-                         │ • Results            │
-                         └──────────┬───────────┘
-                                    │
-                              REST API / HTTP
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │       BACKEND        │
-                         │       FastAPI        │
-                         └──────────┬───────────┘
-                                    │
-             ┌──────────────────────┼──────────────────────┐
-             │                      │                      │
-             ▼                      ▼                      ▼
-    ┌────────────────┐    ┌────────────────┐    ┌────────────────┐
-    │ Interview      │    │ AI Evaluation  │    │ Voice          │
-    │ Engine         │    │ Engine         │    │ Processing     │
-    └───────┬────────┘    └───────┬────────┘    └───────┬────────┘
-            │                     │                     │
-            └─────────────────────┼─────────────────────┘
-                                  │
-                                  ▼
-                         ┌──────────────────────┐
-                         │       DATABASE       │
-                         │      PostgreSQL      │
-                         └──────────────────────┘
-
- ``` 
-  
-## 3. Frontend
-
-The frontend provides the interface through which candidates configure and complete interviews.
-
-Main Components
-Interview Setup
-
-The candidate can select:
-
-Job role
-Experience level
-Interview type
-Skills or topics
-Number of questions
-Interview mode
-Interview Screen
-
-The interview screen displays:
-
-Current question
-Question number
-Countdown timer
-Voice recording controls
-Text answer input
-Submit button
-Results
-
-The results screen displays:
-
-Overall score
-Technical performance
-Answer quality
-Communication indicators
-Strengths
-Weaknesses
-Personalized feedback
-Interview integrity indicators
-
-## 4. Backend
-
-The backend acts as the central controller of the application.
-
-Responsibilities
-Manage interview sessions
-Generate questions
-Receive candidate answers
-Process voice responses
-Request AI evaluations
-Control adaptive questioning
-Calculate performance scores
-Store interview data
-Communicate with the database
-Technology
-
-Python + FastAPI
-
-The backend will also keep sensitive information such as API keys away from the frontend. 
-
-## 5. Interview Engine
-
-The Interview Engine controls the progression of each interview.
-
-It maintains the current interview state and determines what question should be presented next.
-
-Interview Flow
-```
-START
-  ↓
-INTERVIEW SETUP
-  ↓
-GENERATE QUESTION
-  ↓
-START TIMER
-  ↓
-WAIT FOR ANSWER
-  ↓
-ANSWER RECEIVED
-  ↓
-EVALUATE ANSWER
-  ↓
-UPDATE PERFORMANCE
-  ↓
-ADJUST DIFFICULTY
-  ↓
-GENERATE NEXT QUESTION
-  │
-  ├── More questions → Repeat
-  │
-  └── No questions → Final Report
-  ```
-The Interview Engine is responsible for maintaining the interview state rather than allowing the AI model to control the entire process.
-
-## 6. Adaptive Questioning
-
-Adaptive questioning is the core feature of the system.
-
-Instead of asking a fixed sequence of questions, the system uses the candidate's previous performance to determine the next question.
-
-Example
-```
-Question 1
-    ↓
-Strong Answer
-    ↓
-Increase Difficulty
-    ↓
-Question 2
-    ↓
-Weak Answer
-    ↓
-Identify Weak Topic
-    ↓
-Targeted Question
-```
-The evaluation system will provide structured information such as:
-```
-{
-  "technical_score": 8,
-  "relevance_score": 9,
-  "clarity_score": 7,
-  "completeness_score": 8,
-  "overall_score": 8,
-  "weak_topics": [],
-  "recommended_difficulty": "hard"
-}
-```
-The backend will use this information to determine the next question.
-
-The AI can recommend a difficulty level, but the backend will control the final decision.
-
-## 7. AI Question Generation and Answer Evaluation
-
-The AI layer has two primary responsibilities.
-
-Question Generation
-
-The AI receives information such as:
-
-Job role
-Experience level
-Interview type
-Skills
-Current difficulty
-Previous questions
-Previous performance
-Weak topics
-
-It then generates an appropriate interview question.
-
-Example:
-```
-{
-  "question": "Explain polymorphism in Python with an example.",
-  "topic": "Object-Oriented Programming",
-  "difficulty": "medium",
-  "type": "technical"
-}
-```
-Answer Evaluation
-
-The candidate's answer is evaluated using:
-
-Technical accuracy
-Relevance
-Clarity
-Completeness
-Overall answer quality
-
-The evaluation produces structured results that are passed to the Interview Engine.
-```
-Question
-    +
-Candidate Answer
-    ↓
-AI Evaluation
-    ↓
-Scores + Feedback + Weak Topics
-    ↓
-Adaptive Interview Engine
+HTTP router → dependencies → InterviewService → InterviewStore → InterviewSession (domain)
+                                     ↘ evaluators / selector / transcription
 ```
 
-## 8. Voice and Text Processing
-Both voice and text are core input methods.
-**Voice Pipeline**
-```
-Candidate
-    ↓
-Microphone
-    ↓
-Audio Recording
-    ↓
-Speech-to-Text
-    ↓
-Transcribed Answer
-    ↓
-AI Answer Evaluation
-```
-Voice responses can additionally provide communication indicators such as:
+- **Routers** (`api/interview.py`, `api/auth.py`, …) never contain interview rules. They
+  validate with Pydantic, call a service and translate domain exceptions through
+  `api/errors.py`.
+- **Dependencies** (`api/auth_deps.py`) decide who may reach a resource and enforce CSRF on
+  cookie-authenticated state changes.
+- **InterviewService** wraps every operation on an existing interview in
+  `store.edit(interview_id)`, which takes an exclusive lock (`SELECT … FOR UPDATE NOWAIT` on
+  the interview row in PostgreSQL, an `RLock` in memory). Starting an interview instead locks
+  the candidate row, so two concurrent starts for one candidate see each other's question
+  history. Together these make "one answer, one evaluation, one competency update" hold under
+  concurrent requests.
+- **InterviewSession** owns every rule: accept or refuse an answer, compute timing, log
+  integrity events, update competency, advance or complete. It is storage-agnostic and
+  records `Change` objects (`services/domain_changes.py`) that a store persists.
+- **Stores** load one interview, run the domain operation in a transaction and write back
+  the recorded changes. No formula is duplicated in the PostgreSQL layer.
 
-Speaking duration
-Speaking rate
-Filler words
-Long pauses
+## 4. Interview lifecycle
 
-These are treated as communication indicators and not definitive measurements of confidence or personality.
-
-**Text Pipeline**
-```
-Candidate
-    ↓
-Text Input
-    ↓
-Timer + Integrity Checks
-    ↓
-Answer Submission
-    ↓
-AI Evaluation
-```
-Both input methods eventually enter the same evaluation pipeline:
-```
-Voice ──→ Speech-to-Text ──┐
-                           ├──→ Answer Evaluation
-Text ──────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> Active: POST /interview/start
+    Active --> Active: POST /answer (saved, evaluated)
+    Active --> Active: POST /next (next question, new timer)
+    Active --> Completed: POST /next after question_count
+    Active --> Completed: POST /next when no servable question remains
+    Active --> Active: deadline passes, question marked timed_out
+    Completed --> [*]: GET /report
 ```
 
-## 9. Interview Integrity
+Per question the server exposes one of five `question_state` values, used by the frontend to
+decide what to show (`active` has an in-grace variant, shown as its own row):
 
-The initial version will use a simple integrity system.
+| State | Meaning | `next_action` |
+| --- | --- | --- |
+| `active` | Waiting for an answer, deadline not passed | `answer` |
+| `active`, inside the grace period | Late but still accepted | `answer` |
+| `evaluation_pending` | Answer saved, evaluator unavailable, retries left | `retry_evaluation` (then `advance`) |
+| `evaluation_failed` | Evaluator output unusable, retries left | `retry_evaluation` (then `advance`) |
+| `evaluated` | Scored; competency updated once | `advance` |
+| `timed_out` | Deadline passed with no accepted answer | `advance` |
 
-Per-Question Timer
+A question is closed exactly once. A second answer is `409`; an answer after
+`limit + grace` is `409 question_deadline_passed` and the question is marked timed out.
+Evaluation failures never lose the saved answer and never invent a score.
 
-Each question has a time limit.
+## 5. Answer and evaluation pipeline
 
-The initial default is:
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant API as FastAPI
+    participant S as InterviewService
+    participant D as InterviewSession
+    participant E as RubricEvaluator
+    participant L as LLM provider
 
-90 seconds
+    B->>API: POST /interview/{id}/answer
+    API->>API: require_interview_access
+    API->>S: submit_answer
+    S->>D: record_answer (validate, time, log indicators)
+    D-->>S: saved answer (status pending)
+    S->>E: evaluate_answer(question, text)
+    E->>L: structured JSON request
+    L-->>E: rubric JSON
+    E->>E: validate + mean of 5 criteria
+    E-->>S: ConceptualEvaluation
+    S->>D: apply_evaluation (θ update, once)
+    D-->>S: competency_update
+    S-->>API: 200 completed
+    API-->>B: evaluation + competency + timing
 
-The timer starts when the question is displayed.
-
-When the timer reaches zero, the answer is automatically submitted.
-
-Different question types may receive different time limits in future versions.
-
-**Copy/Paste Detection**
-
-The system will detect relevant copy and paste events during text-based answers.
-
-These events will be recorded as integrity indicators.
-
-A copy/paste event will not automatically classify a candidate as cheating.
-
-Example:
+    Note over E,S: Provider failure: answer stays saved,<br/>status pending/failed, HTTP 202, no score
 ```
-Paste Events: 0
-Integrity Status: Normal
+
+The overall score is **computed by the backend** as the rounded mean of five integer
+criteria (technical accuracy, relevance, completeness, depth, clarity); the model's own
+"overall" opinion is not requested. `scenario`, `system_design` and `debugging` answers use
+the same rubric evaluator as `conceptual`. Coding questions would use
+`services/coding_evaluator.py`, but no test cases exist and those questions are never
+selected.
+
+## 6. Adaptive question selection
+
+Cold start and adaptive mode are separate paths:
+
+```mermaid
+flowchart TD
+    Q["POST /next (or interview start)"] --> EL["Eligible: same topic,<br/>not asked in this interview,<br/>review_status = reviewed"]
+    EL --> N{"Competency history?"}
+    N -- "none (first question)" --> CS["Requested difficulty wins;<br/>unseen questions first;<br/>least-recently-assigned next;<br/>random among exact ties"]
+    N -- "exists" --> ST{"Last 3 questions<br/>same difficulty?"}
+    ST -- yes --> ALT["Keep only different<br/>difficulties (if any)"]
+    ST -- no --> SCORE
+    ALT --> SCORE["Score each candidate:<br/>θ → H(θ) → IDI → Fit → QScore"]
+    SCORE --> SEEN{"Unseen questions?"}
+    SEEN -- yes --> RANK["Rank by QScore;<br/>random within best tie group"]
+    SEEN -- no --> OLD["Least-recently-assigned tier,<br/>then QScore"]
 ```
-or:
+
+Verified constants: `EMA_ALPHA = 0.15` (`schemas/competency.py`), equal QScore weights 0.5/0.5
+and difficulty values 0.25/0.50/0.75 (`services/adaptive_metrics.py`), `STREAK_LIMIT = 3`
+(`services/question_selector.py`). Competency state is owned by one interview and starts at
+0.5 per competency, so θ is **not comparable across interviews** — it is reset when a new
+interview begins. Full formulas, worked examples and limitations:
+[MATHEMATICAL_SPEC.md](MATHEMATICAL_SPEC.md).
+
+Candidate-aware cooldown reads `interview_questions` rows (PostgreSQL) or existing sessions
+(in memory) for the same `candidate_id` and topic; anonymous interviews have no history. See
+[decisions/0005-candidate-aware-cooldown.md](decisions/0005-candidate-aware-cooldown.md).
+
+## 7. Timing and integrity
+
+```mermaid
+flowchart LR
+    A["Question assigned<br/>question_started_at = now"] --> B["limit = estimated_time_seconds<br/>or 90 s default"]
+    B --> C["deadline = start + limit + grace<br/>(ANSWER_GRACE_SECONDS, default 15)"]
+    C --> D{"Answer arrives?"}
+    D -- "before limit" --> OK["Accepted, timed_out = false"]
+    D -- "inside grace" --> LATE["Accepted, timed_out = true"]
+    D -- "after deadline" --> REJ["409 question_deadline_passed<br/>question marked timed_out"]
 ```
-Paste Events: 1
-Integrity Status: Review Recommended
+
+- The server clock is the only clock. Client timestamps and `submission_reason` are stored
+  as metadata and never decide whether a timeout occurred.
+- `question_started_at` is set once per question and is never reset by a resubmission.
+- Client integrity events (`copy`, `paste`, `tab_switch`, `focus_loss`, `focus_gain`) are
+  stored verbatim with no clipboard content. Server indicators
+  (`late_submission_rejected`, `duplicate_submission`, `unassigned_question_attempt`,
+  `fast_submission`) are recorded independently.
+- Integrity events never block, penalise or rescore an answer. They appear in the report as
+  counts for human review.
+
+## 8. Authentication and ownership
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as /api/v1/auth
+    participant S as AuthService
+    participant DB as users + auth_sessions
+
+    B->>A: POST /login {email, password}
+    A->>S: verify Argon2id hash, rate limits
+    S->>DB: insert session (token SHA-256, expires_at)
+    A-->>B: 200 user + Set-Cookie ais_session (HttpOnly, SameSite=Lax)
+    B->>A: GET /me (cookie)
+    A->>S: authenticate(token)
+    S->>DB: read session, check expiry/revocation/is_active
+    A-->>B: 200 user or 401 authentication_required
 ```
-More advanced integrity mechanisms can be added later if required.
 
-## 10. Database and Data Flow
+Guest interviews stay open by id. An interview owned by an account requires that account's
+session: guests get `401`, other accounts get `404` (never `403`, so existence is not
+confirmed). A client-supplied `candidate_id` is never authentication. Details, including the
+deliberately unimplemented guest-claiming design: [AUTHENTICATION.md](AUTHENTICATION.md).
 
-The database will store information related to users, interviews, questions, answers, scores, and feedback.
+## 9. Frontend architecture
 
-Basic Data Structure
+React 19 + Vite SPA with client-side routing. `SessionProvider` asks the server who is signed
+in and exposes `useSession()`; `src/api/client.js` is the only place that performs HTTP.
+Interview and report routes are deliberately unguarded so guest links keep working; only
+`/dashboard` is protected. Full route and component map: [FRONTEND.md](FRONTEND.md).
+
+## 10. Error handling
+
+Three error body shapes reach the client:
+
+```jsonc
+{ "detail": "Interview not found" }                              // legacy routes
+{ "detail": { "code": "csrf_rejected", "message": "..." } }      // newer routes
+{ "detail": [ { "loc": ["body", "topic"], "msg": "..." } ] }      // 422 validation
 ```
-USER
- │
- └── INTERVIEW
-       │
-       ├── Configuration
-       │
-       ├── Question
-       │     ├── Answer
-       │     ├── Score
-       │     └── Feedback
-       │
-       ├── Question
-       │     ├── Answer
-       │     ├── Score
-       │     └── Feedback
-       │
-       └── Final Report
-```
-Complete Data Flow
-```
-USER
-  ↓
-Interview Setup
-  ↓
-Create Interview Session
-  ↓
-Generate Question
-  ↓
-Start Timer
-  ↓
-Candidate Answers
-  │
-  ├──────────────┐
-  │              │
-Voice           Text
-  │              │
-  ↓              ↓
-Speech-to-Text   Integrity Checks
-  │              │
-  └───────┬──────┘
-          ↓
-    Answer Evaluation
-          ↓
-    Performance Analysis
-          ↓
-    Adaptive Decision
-          ↓
-    Next Question
-          │
-          └──→ Repeat
 
-After final question
-          ↓
-    Final Interview Report
-```
-## 11. Technology Stack
+`api/errors.py` maps known domain exceptions and returns nothing else: raw exception text,
+stack traces, provider bodies and database messages never leave the process. Unknown
+exceptions become a plain 500. Every `/api/v1/*` response, including errors, carries
+`Cache-Control: no-store` and `Pragma: no-cache`.
 
-| Component |	Technology |
-|-----------|--------------|
-| Frontend |	React + Vite |
-| Backend |	Python + FastAPI |
-| AI	 | LLM API |
-| Speech-to-Text |	Speech Recognition API |
-| Database |	PostgreSQL |
-| Communication |	REST API |
-| Version Control | 	Git + GitHub |
-| Development |	 VS Code |
+Domain specifics:
 
-The exact AI and speech-to-text providers will be selected during implementation.
+| Exception | Status | Body |
+| --- | --- | --- |
+| `InterviewNotFoundError` | 404 | `Interview not found` |
+| `CandidateNotFoundError` | 404 | `Candidate not found` |
+| `InterviewNotActiveError` | 409 | `Interview is not active` |
+| `AnswerAlreadySubmittedError` | 409 | `This question has already been answered` |
+| `QuestionNotCurrentError` | 400 | `This question is not the interview's current question` |
+| `QuestionNotAnsweredError` | 409 | `The current question must be answered before moving on` |
+| `UnsupportedQuestionTypeError` | 400 | `Unsupported question type` |
+| `QuestionDeadlinePassedError` | 409 | `question_deadline_passed` |
+| `EvaluationPendingError` | 409 | `evaluation_pending` |
+| `AnswerNotFoundError` | 409 | `no_answer_recorded` |
+| `EvaluationRetriesExhaustedError` | 409 | `evaluation_retries_exhausted` |
+| `InterviewBusyError` | 409 + `Retry-After: 1` | `interview_busy` |
+| `AuthError` subclasses | 401 / 403 / 409 / 429 | see [AUTHENTICATION.md](AUTHENTICATION.md) |
 
-## 12. Design Principles
-**Modularity**
-Each component should have a clear responsibility and should be replaceable where practical.
+## 11. External integrations
 
-**Shared Evaluation Pipeline**
-Voice and text responses should use the same answer evaluation system after voice is converted to text.
+| Integration | Status | Notes |
+| --- | --- | --- |
+| Anthropic Messages API | Implemented, not exercised live in this repository | Forced tool call; key from `ANTHROPIC_API_KEY` |
+| OpenAI-compatible Chat Completions | Implemented, not exercised live in this repository | JSON mode; needs `OPENAI_MODEL` |
+| `faster-whisper` | Implemented, optional install | Local model downloaded on first use; audio never leaves the server |
+| PostgreSQL | Implemented | Selected by `STORAGE_BACKEND=postgres`, or by `DATABASE_URL` when `STORAGE_BACKEND` is unset |
+| Email, payments, analytics | Not implemented | No integration exists |
 
-**Backend-Controlled Logic**
-The backend controls interview progression and adaptive difficulty. The AI provides evaluation and recommendations but does not independently control the interview.
+There are no background workers, queues or scheduled jobs. Evaluation and transcription run
+inline in the request that triggers them, which is why their timeouts are part of the request
+budget.
 
-**Security**
-API keys and other sensitive information must never be stored in the frontend or committed to GitHub.
+Live calls to the two LLM providers are not covered by the automated suite (no key is
+available); request and response shapes are tested with mocked HTTP. Treat provider
+compatibility as requiring verification before production use.
 
-**Incremental Development**
-Features will be developed, tested, and committed independently before major integration.
+## 12. Known architectural limitations
 
-**Extensibility**
-The architecture should allow future additions such as:
--Interview history
--Advanced analytics
--Personalized learning recommendations
--Company-specific interviews
--Advanced communication analysis
--Advanced interview integrity mechanisms
-
-## 13. Implementation Status: Competency State (Stage 3.5)
-
-The sections above describe the eventual, aspirational architecture.
-This section documents what is actually implemented as of Stage 3.5.
-
-After Stage 3.4's answer evaluation, each interview now maintains an
-**estimated competency state** per competency encountered, in
-`app/services/competency_state.py`. This is the first piece of the
-planned adaptive pipeline:
-theta -> H(theta) -> IDI -> DifficultyFit -> QScore
-
-
-**At Stage 3.5, only theta (competency state estimation) was implemented.**
-Shannon entropy H(theta), IDI, DifficultyFit and the final QScore were added
-later (see §15) together with their use in question selection; at this stage
-question retrieval still worked exactly as in Stage 3.3.
-
-**What theta is:** for each competency, `theta` is an *estimated*
-competency level in `[0.0, 1.0]` inferred from observed answer
-performance — not an objective measure of the candidate's true
-ability. It starts at `theta_initial = 0.5` (neutral) the first time a
-competency is encountered (lazy initialization; competencies are never
-pre-populated).
-
-**Update formula**, applied after every evaluated answer for that
-answer's competency:
-
-theta_new = (1 - alpha) * theta_old + alpha * S
-
-
-where `S` is the answer's Stage 3.4 `overall_score` normalized from
-`[0,10]` to `[0,1]` (`S = overall_score / 10`, clamped), and
-`alpha = 0.15` is a fixed research design constant — it is not
-configurable and must not be changed without updating this document.
-
-EMA is used so recent performance shifts the estimate while still
-being smoothed by prior answers, rather than each new answer either
-being ignored or completely overwriting the running estimate.
-
-The competency touched is chosen from the answered question's
-metadata, preferring: explicit `competency` field → `subtopic` →
-`topic` → a safe fallback label, so a question missing some metadata
-never crashes the interview.
-
-Competency state belongs to a single interview session (never shared
-globally). It is returned alongside each answer's evaluation under
-`competency_update`, and can be read in full via
-`GET /interview/{interview_id}/competency`.
-
-
-## 14. Implementation Status: Timer and Interview Integrity (Stage 3.6)
-
-**Default time limit:** every question gets a 90-second time budget
-(`DEFAULT_QUESTION_TIME_LIMIT_SECONDS` in `app/config.py`) — a single
-constant, not hard-coded per file.
-
-**IMPORTANT ARCHITECTURE LIMITATION:** the backend cannot observe a
-browser's visible countdown, its clipboard, tab switches, or window
-focus. A future frontend is responsible for rendering the countdown
-and for reporting copy/paste events; the backend only validates and
-timestamps what it's told.
-
-**Server-side timing is authoritative.** `question_started_at` is
-recorded once (in UTC) the moment a question becomes current, and is
-never reset — not even by resubmitting. Every answer submission
-computes `elapsed_seconds` and `timed_out` itself, from its own
-`question_started_at` and the current server time, regardless of what
-the client claims via `submission_reason`. This is what prevents a
-candidate from extending their time by submitting more than once.
-
-**Automatic submission** at 90 seconds is a frontend responsibility:
-the backend cannot push a submission from the server, so when a
-browser's own countdown reaches zero, it is expected to call the
-existing `POST /interview/{id}/answer` endpoint itself with
-`submission_reason: "timeout"`. The backend still independently
-verifies whether a timeout actually occurred; a late submission is
-evaluated and stored as normal, just flagged `timed_out: true` for
-audit, since this stage does not implement automatically ending or
-advancing past a question.
-
-**Copy/paste integrity events** (`event_type: "copy" | "paste"`) are
-client-reported and stored verbatim as metadata alongside each answer
-— no clipboard content is ever collected. Their presence is an
-indicator for later human review, never an automatic accusation:
-submitting a copy/paste event never blocks, penalizes, or otherwise
-changes an answer's evaluation or competency update. Advanced
-anti-cheating monitoring (tab-switch detection, window-focus tracking,
-etc.) is explicitly out of scope for this MVP.
-
-
-## 15. Implementation Status: Adaptive Math Foundations
-
-`app/services/adaptive_metrics.py` provides pure, deterministic functions
-for H(theta), IDI, DifficultyFit and QScore, and
-`app/services/question_selector.py` uses them for adaptive question selection
-(after the first question, θ drives the difficulty). Nothing here is
-empirically validated. Apart from theta (Stage 3.5), IDI, DifficultyFit and
-QScore are clearly labeled *proposed baselines*. Full definitions, assumptions,
-limitations and open questions are in `docs/MATHEMATICAL_SPEC.md`.
-The selector also applies candidate-aware cooldown rotation (questions already
-assigned to the same candidate and topic are rotated out) and randomises only
-exact ties; neither changes the formulas above.
-
-
-## 16. Implementation Status: Voice Answers and Interview Progression (Stage 3.8, backend only)
-
-**Scope.** This stage is backend only. **No frontend exists in the repository**, so
-recording in the browser, the transcript review screen and the countdown are not built.
-The backend is ready for a frontend to use.
-
-**Flow.** The browser records audio (MediaRecorder) and uploads it; the backend
-transcribes it and returns text; the candidate reviews/edits that text; the edited
-text is submitted through the *existing* `POST /interview/{id}/answer` endpoint.
-
-    audio -> POST /interview/{id}/transcribe -> transcript (no state change)
-          -> candidate reviews/edits
-          -> POST /interview/{id}/answer  (answer_source: "voice")
-          -> existing evaluation -> existing competency update
-          -> POST /interview/{id}/next
-
-**`POST /interview/{interview_id}/transcribe`** (multipart: `question_id`, `audio`)
-returns `{interview_id, question_id, transcript, duration_seconds}`. It only
-transcribes: it never evaluates, stores an answer or updates competency. It checks
-that the interview is active and that `question_id` is the current, unanswered
-question. Errors return `{"detail": {"code", "message"}}`:
-`empty_audio` 400, `audio_too_large` 413, `unsupported_audio_format` 415,
-`unreadable_audio` / `audio_too_long` / `no_speech_detected` 422,
-`transcription_failed` 502, `transcription_unavailable` 503,
-`transcription_timeout` 504.
-
-**Supported formats** (identified from file contents, not filename or MIME type):
-WebM, Ogg, MP4/M4A, WAV, MP3. Chrome/Firefox usually record WebM; Safari records MP4.
-
-**Transcription** is isolated behind `TranscriptionClient`
-(`services/transcription_service.py`). The one real provider is local
-`faster-whisper` (`services/whisper_provider.py`), which is optional
-(`requirements-whisper.txt`) and downloads its model on first use. The application
-contains no fake provider, so it cannot return a made-up transcript; tests use fakes.
-
-**Privacy.** Audio is held in memory and in a temporary directory deleted after each
-call; it is never stored permanently and never logged. Candidate audio stays on the
-server (no external service).
-
-**Configuration** (optional, see `backend/.env.example`): `MAX_AUDIO_UPLOAD_BYTES`
-(10 MB), `MAX_RECORDING_SECONDS` (60), `TRANSCRIPTION_TIMEOUT_SECONDS` (60),
-`WHISPER_MODEL_SIZE` (`base.en`). Load with `uvicorn ... --env-file .env`.
-
-**Duplicate answers.** A question can be answered once; a second submission returns
-409, so evaluation and the competency update happen exactly once per question.
-
-**Progression.** `POST /interview/{id}/next` requires the current question to be
-answered, then selects the next question with the adaptive selector
-(QScore derived from θ, candidate cooldown rotation, no repeats) and starts a
-fresh 90-second timer. The interview completes after `question_count`
-answers, or earlier if the topic has no unasked questions left.
-`GET /questions/{question_id}` returns question text for display and omits
-`reference_answer`.
-
-**Answer source.** `answer_source` ("text" | "voice") is client-reported metadata
-stored with the answer; it never affects scoring.
-
-**Limitations.**
-- Voice time counts toward the 90-second question timer (recording, upload,
-  transcription and editing); late answers are flagged `timed_out`, not rejected.
-- Conceptual answers are still scored by the placeholder `MockLLMClient`
-  (length-based), for voice and text alike. A real evaluator is not integrated.
-- Size is enforced from `Content-Length` and while streaming; the framework may spool
-  an upload without `Content-Length` to temporary storage first. Use a proxy body
-  limit in production. There is no rate limiting.
-- On timeout the transcription thread cannot be killed; it finishes in the background.
-- Transcription quality has not been measured; reviewing the text is mandatory.
-
-
-## 17. Question Bank v2 (827 questions)
-
-The bank was replaced with `Software_Questions_FINAL_merged.csv` (copied to
-`backend/data/question_bank.csv`, converted to `question_bank.json` by
-`backend/scripts/convert_question_bank.py`). Re-run the converter after every CSV edit;
-a test fails if the JSON is out of date.
-
-**Fields.** 20 categories (`topic`; also used as `competency`, so competency state is
-tracked per category), `subcategory` (`subtopic`), 3 difficulties, 5 question types
-(`conceptual`, `scenario`, `system_design`, `debugging`, `coding`), plus
-`expected_concepts`, `evaluation_criteria`, `estimated_time_seconds`, `review_status`,
-`source`, `legacy_category`, `previous_id`. IDs look like `SWQ-0001`.
-
-**What a candidate is asked.** Only `reviewed` questions are selected (707 of 827).
-`needs_manual_review` (100) and `requires_coding_evaluation` (20) stay in the bank, can be
-looked up by ID, but are never selected. Coding questions are excluded because there is no
-code-execution sandbox: they would always score 0.
-
-**Evaluation.** `scenario`, `system_design` and `debugging` answers are free text and use the
-same rubric evaluator as `conceptual` (still the placeholder `MockLLMClient`).
-
-**Answer key.** `reference_answer`, `expected_concepts` and `evaluation_criteria` are never
-returned by any question endpoint (`QuestionPublic`).
-
-**Known limitations.**
-- `estimated_time_seconds` is informational: the server timer is still a fixed 90 seconds,
-  so longer questions (scenario 240s, system design up to 900s) are flagged `timed_out`.
-- Reviewed *hard* questions are scarce (0 for Networking and Software Design & Practices,
-  1-4 for most categories). When they run out the selector falls back to other
-  difficulties in the same topic.
-- `difficulty` labels, `estimated_time_seconds` and the generated questions
-  (`source: generated_*`) have not been empirically validated.
+- Storage is synchronous SQLAlchemy inside FastAPI's threadpool; there is no async DB path.
+- Rate limiting is in-process, so it multiplies per worker and resets on restart.
+- The backend cannot observe a browser countdown, clipboard, tab switch or focus. Everything
+  in that category is client-reported and only an indicator.
+- A transcription worker thread cannot be cancelled on timeout; it finishes in the
+  background.
+- Reports and candidate-history routes are protected only for account-owned records; a guest
+  record is readable by anyone holding its id (existing contract, documented in
+  [AUTHENTICATION.md](AUTHENTICATION.md)).
