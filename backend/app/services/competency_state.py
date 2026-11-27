@@ -120,3 +120,10 @@ class CompetencyStateStore:
     def get_all(self) -> Dict[str, CompetencyState]:
         """Return every competency state tracked so far in this interview."""
         return dict(self._states)
+
+    def restore(self, states: Dict[str, CompetencyState]) -> None:
+        """Replace the tracked states with persisted ones (used when loading an interview).
+
+        The update formula is untouched: only the starting state differs.
+        """
+        self._states = dict(states)

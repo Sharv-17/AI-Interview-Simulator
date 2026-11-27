@@ -27,11 +27,19 @@ def _start_algorithms_interview():
 
 
 def test_default_time_limit_is_90_seconds():
+    """90s is now the FALLBACK, used only when a question has no estimated_time_seconds."""
     assert DEFAULT_QUESTION_TIME_LIMIT_SECONDS == 90
+
+
+def test_time_limit_comes_from_the_questions_estimated_time():
+    from app.repositories.question_repository import question_repository
 
     interview = _start_algorithms_interview()
     session = interview_engine.get_interview(interview["interview_id"])
-    assert session.question_time_limit_seconds == 90
+    question = question_repository.get_by_id(interview["current_question_id"])
+    assert question.estimated_time_seconds is not None
+    assert session.question_time_limit_seconds == question.estimated_time_seconds
+    assert interview["question_time_limit_seconds"] == question.estimated_time_seconds
 
 
 def test_question_start_time_is_recorded_correctly():
@@ -64,10 +72,12 @@ def test_question_beyond_time_limit_is_detected():
 
 
 def test_timeout_metadata_is_stored_correctly():
+    """An answer after the nominal limit but inside the grace period is accepted and flagged."""
     interview = _start_algorithms_interview()
     session = interview_engine.get_interview(interview["interview_id"])
-    # Simulate the question having started 120s ago -- no real waiting.
-    session.question_started_at = datetime.now(timezone.utc) - timedelta(seconds=120)
+    limit = session.question_time_limit_seconds
+    # Simulate the question having started (limit + 5)s ago -- no real waiting.
+    session.question_started_at = datetime.now(timezone.utc) - timedelta(seconds=limit + 5)
 
     response = client.post(
         f"/interview/{interview['interview_id']}/answer",
@@ -81,9 +91,28 @@ def test_timeout_metadata_is_stored_correctly():
     assert response.status_code == 200
     timing = response.json()["timing"]
     assert timing["timed_out"] is True
-    assert timing["elapsed_seconds"] >= 90
+    assert timing["elapsed_seconds"] >= limit
     assert timing["submission_reason"] == "timeout"
-    assert timing["time_limit_seconds"] == 90
+    assert timing["time_limit_seconds"] == limit
+    assert timing["grace_seconds"] == 15
+
+
+def test_an_answer_after_limit_plus_grace_is_rejected_and_the_question_is_timed_out():
+    interview = _start_algorithms_interview()
+    session = interview_engine.get_interview(interview["interview_id"])
+    limit = session.question_time_limit_seconds
+    session.question_started_at = datetime.now(timezone.utc) - timedelta(seconds=limit + 15 + 5)
+
+    response = client.post(
+        f"/interview/{interview['interview_id']}/answer",
+        json={"question_id": interview["current_question_id"], "answer_text": "Too late."},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "question_deadline_passed"
+    assert session.answers == []
+    assert session.competency_state.get_all() == {}  # a late answer never updates competency
+    assert interview["current_question_id"] in session.timed_out_question_ids
 
 
 def test_timer_is_not_reset_by_resubmitting():

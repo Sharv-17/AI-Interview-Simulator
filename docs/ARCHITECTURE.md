@@ -438,10 +438,10 @@ planned adaptive pipeline:
 theta -> H(theta) -> IDI -> DifficultyFit -> QScore
 
 
-**Only theta (competency state estimation) is implemented.** Shannon
-entropy H(theta), IDI, DifficultyFit, and the final QScore are **not**
-implemented yet, and no question selection currently uses competency
-state — question retrieval still works exactly as in Stage 3.3.
+**At Stage 3.5, only theta (competency state estimation) was implemented.**
+Shannon entropy H(theta), IDI, DifficultyFit and the final QScore were added
+later (see §15) together with their use in question selection; at this stage
+question retrieval still worked exactly as in Stage 3.3.
 
 **What theta is:** for each competency, `theta` is an *estimated*
 competency level in `[0.0, 1.0]` inferred from observed answer
@@ -519,12 +519,15 @@ etc.) is explicitly out of scope for this MVP.
 ## 15. Implementation Status: Adaptive Math Foundations
 
 `app/services/adaptive_metrics.py` provides pure, deterministic functions
-for H(theta), IDI, DifficultyFit and QScore. They are **not** connected to
-question selection or any API route, and nothing here is empirically
-validated. Apart from theta (Stage 3.5), IDI, DifficultyFit and QScore are
-clearly labeled *proposed baselines*. Full definitions, assumptions,
+for H(theta), IDI, DifficultyFit and QScore, and
+`app/services/question_selector.py` uses them for adaptive question selection
+(after the first question, θ drives the difficulty). Nothing here is
+empirically validated. Apart from theta (Stage 3.5), IDI, DifficultyFit and
+QScore are clearly labeled *proposed baselines*. Full definitions, assumptions,
 limitations and open questions are in `docs/MATHEMATICAL_SPEC.md`.
-Adaptive question selection is still **not** implemented.
+The selector also applies candidate-aware cooldown rotation (questions already
+assigned to the same candidate and topic are rotated out) and randomises only
+exact ties; neither changes the formulas above.
 
 
 ## 16. Implementation Status: Voice Answers and Interview Progression (Stage 3.8, backend only)
@@ -574,9 +577,9 @@ server (no external service).
 409, so evaluation and the competency update happen exactly once per question.
 
 **Progression.** `POST /interview/{id}/next` requires the current question to be
-answered, then selects the next question with the *existing baseline selector*
-(topic + difficulty, no repeats; **not** QScore: adaptive selection is not connected)
-and starts a fresh 90-second timer. The interview completes after `question_count`
+answered, then selects the next question with the adaptive selector
+(QScore derived from θ, candidate cooldown rotation, no repeats) and starts a
+fresh 90-second timer. The interview completes after `question_count`
 answers, or earlier if the topic has no unasked questions left.
 `GET /questions/{question_id}` returns question text for display and omits
 `reference_answer`.

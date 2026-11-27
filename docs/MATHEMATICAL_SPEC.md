@@ -101,8 +101,9 @@ QScore = w_idi·IDI + w_fit·DifficultyFit,   w_idi = w_fit = 0.5
   fabricated. For a competency with no recorded state, the Stage 3.5 prior
   `θ = 0.5` is used (the model's defined initial state).
 - Ties: candidates are ordered by QScore descending (compared after rounding to
-  12 decimals to absorb float noise), then by `question_id` ascending.
-  Unscorable (`None`) candidates are excluded from the ranking.
+  12 decimals to absorb float noise). Exact ties are ordered by `question_id` and
+  one is chosen randomly among them (see §6); unscorable (`None`) candidates are
+  excluded from the ranking.
 - IDI is competency-level and DifficultyFit is question-level, so the two
   components are not redundant.
 
@@ -120,9 +121,17 @@ Code: `backend/app/services/question_selector.py`. Nothing here changes the form
 (`review_status` is `reviewed`). `needs_manual_review` and `requires_coding_evaluation`
 questions are never eligible.
 
+**Candidate cooldown rotation.** History is scoped by the candidate's stable
+`candidate_id` and the interview's topic. Every assignment counts, whether or not it was
+answered (unanswered, timed-out and abandoned interviews included). Anonymous interviews
+have no history. No separate history table is used: PostgreSQL reads the existing
+`interview_questions` rows and the in-memory backend reads its sessions.
+
 **Cold start (first question).** With no competency history the interview's requested
-`difficulty` picks the question (`baseline_score`: topic match, then difficulty match;
-ties keep bank order). θ keeps its research prior of 0.5.
+`difficulty` picks the question (`baseline_score`: topic match, then difficulty match).
+Within that difficulty, never-assigned questions come first; when all have been seen,
+the least recently assigned one is used, and exact ties are broken randomly. θ keeps its
+research prior of 0.5.
 
 **Adaptive mode (every later question).** For each eligible question *q* with competency
 *c* and difficulty value *d* (easy .25 / medium .5 / hard .75):
@@ -132,8 +141,12 @@ ties keep bank order). θ keeps its research prior of 0.5.
     Fit    = 1 − |θ_c − d|
     QScore = 0.5·IDI + 0.5·Fit
 
-Candidates are ranked by QScore (descending), ties broken by `question_id` (ascending), so
-the result is deterministic and independent of storage order. There is no randomness.
+Candidates are ranked by QScore (descending). Before ranking, questions already assigned
+to the candidate in earlier interviews of the same topic are rotated out: never-seen
+questions are considered first, and only when none remain are previously seen questions
+used, least recently assigned first. Exact ties are broken randomly among the tied
+questions after ordering by `question_id`, so a given seed is independent of storage
+order (see §6).
 
 **What each metric does to the choice.**
 - *DifficultyFit* chooses the difficulty: it is highest when *d* is closest to θ, so a

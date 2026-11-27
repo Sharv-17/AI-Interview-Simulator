@@ -12,19 +12,32 @@ from typing import Optional
 from app.schemas.evaluation import ConceptualEvaluation
 from app.schemas.question import Question, QuestionType
 from app.services.evaluation_errors import EvaluationError
-from app.services.llm_client import LLMClient, get_llm_client
+from app.services.llm_client import LLMClient
+from app.services.rubric_evaluator import RubricEvaluator, get_rubric_evaluator
 
 
 def evaluate_conceptual_answer(
     question: Question,
     answer_text: str,
     llm_client: Optional[LLMClient] = None,
+    rubric_evaluator: Optional[RubricEvaluator] = None,
 ) -> ConceptualEvaluation:
-    """Evaluate a candidate's answer to a conceptual question."""
-    client = llm_client or get_llm_client()
+    """Evaluate a candidate's free-text answer.
+
+    Default (production) path: the rubric evaluator, which uses the configured LLM
+    provider and the question's reference answer, expected concepts and criteria
+    (app/services/rubric_evaluator.py). If the provider is unavailable this RAISES;
+    it never returns a fallback score.
+
+    `llm_client` selects the legacy five-score interface (LLMClient). It is kept so
+    existing callers and tests that inject their own client keep working; it knows
+    nothing about the question's rubric and is not used by the application.
+    """
+    if llm_client is None:
+        return (rubric_evaluator or get_rubric_evaluator()).evaluate(question, answer_text)
 
     try:
-        raw_scores = client.evaluate_conceptual_answer(
+        raw_scores = llm_client.evaluate_conceptual_answer(
             question_text=question.question_text,
             candidate_answer=answer_text,
             reference_answer=None,
@@ -53,4 +66,5 @@ def evaluate_conceptual_answer(
         feedback=raw_scores.feedback,
         strengths=raw_scores.strengths,
         weaknesses=raw_scores.weaknesses,
+        evaluator=f"legacy:{type(llm_client).__name__}",
     )

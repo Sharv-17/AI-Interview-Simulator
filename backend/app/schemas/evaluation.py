@@ -8,12 +8,14 @@ result generically wherever they only need the common fields.
 """
 
 from enum import Enum
-from typing import List, Union
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from app.schemas.competency import CompetencyUpdate
 from app.schemas.question import QuestionType
 from app.schemas.integrity import IntegrityEvent, SubmissionReason, TimingMetadata
+from app.schemas.interview import NextAction
+from app import config
 
 SCORE_MIN = 0
 SCORE_MAX = 10
@@ -24,6 +26,19 @@ class AnswerSource(str, Enum):
 
     TEXT = "text"
     VOICE = "voice"
+
+
+class EvaluationStatus(str, Enum):
+    """State of the evaluation of one recorded answer.
+
+    completed: scored. pending: not scored yet (evaluator unavailable; retry).
+    failed: the evaluator gave unusable output; retry allowed until retries run out.
+    No score and no competency update exist unless the status is `completed`.
+    """
+
+    COMPLETED = "completed"
+    PENDING = "pending"
+    FAILED = "failed"
 
 
 class ExecutionStatus(str, Enum):
@@ -40,9 +55,14 @@ class EvaluationBase(BaseModel):
     question_id: str
     question_type: QuestionType
     overall_score: float = Field(..., ge=SCORE_MIN, le=SCORE_MAX)
+    max_score: float = SCORE_MAX
     feedback: str
     strengths: List[str] = Field(default_factory=list)
     weaknesses: List[str] = Field(default_factory=list)
+    evaluator: Optional[str] = Field(
+        default=None, description="Who produced this score, e.g. 'anthropic:<model>' or 'mock'."
+    )
+    evaluation_status: "EvaluationStatus" = EvaluationStatus.COMPLETED
 
 
 class ConceptualEvaluation(EvaluationBase):
@@ -60,6 +80,12 @@ class ConceptualEvaluation(EvaluationBase):
     completeness_score: int = Field(..., ge=SCORE_MIN, le=SCORE_MAX)
     clarity_score: int = Field(..., ge=SCORE_MIN, le=SCORE_MAX)
     conceptual_understanding_score: int = Field(..., ge=SCORE_MIN, le=SCORE_MAX)
+    correct_concepts: List[str] = Field(default_factory=list)
+    missing_concepts: List[str] = Field(default_factory=list)
+    incorrect_concepts: List[str] = Field(default_factory=list)
+    # Reviewer-only: kept on the object and stored, but never serialized into a
+    # candidate-facing response (it can echo the rubric).
+    reasoning_summary: Optional[str] = Field(default=None, exclude=True)
 
 
 class CodingEvaluation(EvaluationBase):
@@ -84,23 +110,40 @@ class CodingEvaluation(EvaluationBase):
         return self
 
 
+class ApiError(BaseModel):
+    """A machine-readable error: a stable `code` plus a safe human `message`."""
+
+    code: str
+    message: str
+
+
 class AnswerSubmitRequest(BaseModel):
     """Payload for submitting a candidate's answer to the current question."""
 
-    question_id: str = Field(..., description="Must match the interview's current question")
-    answer_text: str
+    question_id: str = Field(..., max_length=64, description="Must match the interview's current question")
+    answer_text: str = Field(
+        ...,
+        max_length=config.MAX_ANSWER_CHARS,
+        description="The answer text, or the source code for a coding question.",
+    )
     answer_source: AnswerSource = Field(
         default=AnswerSource.TEXT,
         description="'voice' if the text came from a reviewed voice transcript. Metadata only.",
     )
+    language: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="Programming language, for coding questions only (e.g. 'python').",
+    )
     submission_reason: SubmissionReason = Field(
         default=SubmissionReason.CANDIDATE_SUBMITTED,
-        description="Why this answer is being submitted. Metadata only — the backend "
-        "independently determines the authoritative timed_out flag; see TimingMetadata.",
+        description="Why this answer is being submitted. Metadata only: the backend "
+        "independently determines timing from its own clock; see TimingMetadata.",
     )
     integrity_events: List[IntegrityEvent] = Field(
         default_factory=list,
-        description="Client-reported copy/paste events for the current question, if any.",
+        max_length=config.MAX_INTEGRITY_EVENTS_PER_REQUEST,
+        description="Client-reported copy/paste/tab/focus events for the current question, if any.",
     )
 
     @field_validator("question_id", "answer_text")
@@ -111,12 +154,29 @@ class AnswerSubmitRequest(BaseModel):
         return value.strip()
 
 
+class RetryEvaluationRequest(BaseModel):
+    question_id: str = Field(..., max_length=64)
+
+
 class AnswerSubmitResponse(BaseModel):
-    """Response returned after a candidate's answer is evaluated."""
+    """Result of submitting (or re-evaluating) an answer.
+
+    The answer is ALWAYS saved once accepted. `evaluation_status` says whether it has
+    been scored:
+      completed -> `evaluation` and `competency_update` are present (HTTP 200).
+      pending / failed -> both are null, nothing was scored and competency is
+      unchanged (HTTP 202); call POST /interview/{id}/answer/retry-evaluation while
+      `retry_allowed` is true.
+    """
 
     interview_id: str
     question_id: str
-    evaluation: Union[ConceptualEvaluation, CodingEvaluation]
-    competency_update: CompetencyUpdate
+    answer_id: Optional[str] = None
+    evaluation_status: EvaluationStatus = EvaluationStatus.COMPLETED
+    evaluation: Optional[Union[ConceptualEvaluation, CodingEvaluation]] = None
+    competency_update: Optional[CompetencyUpdate] = None
     timing: TimingMetadata
     answer_source: AnswerSource = AnswerSource.TEXT
+    retry_allowed: bool = False
+    evaluation_error: Optional[ApiError] = None
+    next_action: NextAction = NextAction.NONE
