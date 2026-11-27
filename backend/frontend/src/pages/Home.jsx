@@ -51,7 +51,7 @@ export default function Home() {
     <>
       <section className="hero">
         <div className="container hero-inner">
-          <h1>Practice technical interviews that adjust to your answers.</h1>
+          <h1>Practise technical interviews that adjust to your answers.</h1>
           <p className="lead">
             Answer software engineering questions against a timer, by typing or speaking. Each answer is scored
             with written feedback, and the next question depends on how well you did.
@@ -81,7 +81,7 @@ export default function Home() {
       {topics.length > 0 && (
         <section className="section section-alt">
           <div className="container">
-            <h2>Topics you can practice</h2>
+            <h2>Topics you can practise</h2>
             <ul className="topic-list">
               {topics.map((topic) => (
                 <li key={topic}>

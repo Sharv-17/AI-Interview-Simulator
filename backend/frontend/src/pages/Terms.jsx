@@ -27,6 +27,14 @@ export default function Terms() {
         must not be used to make hiring or admission decisions about anyone.
       </p>
 
+      <h2>Accounts</h2>
+      <p>
+        You can practise as a guest or create an account. If you create one, give your real name and an email address
+        you control, keep your password private, and tell us at{' '}
+        <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a> if you think someone else has used your account.
+        You are responsible for what happens under your account. You can ask us to delete it at any time.
+      </p>
+
       <h2>Acceptable use</h2>
       <p>You agree not to:</p>
       <ul>

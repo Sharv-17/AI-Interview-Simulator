@@ -31,7 +31,7 @@ export default function Layout() {
               </>
             ) : (
               <>
-                <NavLink to="/guest" className="nav-link">Guest</NavLink>
+                <NavLink to="/guest" className="nav-link">Practise as guest</NavLink>
                 <NavLink to="/login" className="nav-link">Sign in</NavLink>
               </>
             )}

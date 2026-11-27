@@ -1,87 +1,48 @@
-import { Link } from 'react-router-dom'
-import { Check } from 'lucide-react'
-import { site } from '../siteConfig.js'
+// The sign-in and registration pages are laid out like the cover of an exam paper:
+// what the paper is, how it works, and the instructions, with the form beside it.
+// Every line must stay true to the backend: no invented numbers or sample results.
 
-const POINTS = [
-  'Questions adapt after every answer you give',
-  'AI feedback on accuracy, depth and clarity',
-  'No account needed to start practising',
+const DETAILS = [
+  ['Questions', '1 to 20, your choice'],
+  ['Time allowed', 'Set for each question'],
+  ['Marked', 'Out of 10, after every answer'],
 ]
 
-const BANDS = [
-  { label: 'HARD', y: 46 },
-  { label: 'MEDIUM', y: 101 },
-  { label: 'EASY', y: 156 },
+const INSTRUCTIONS = [
+  'Choose a topic, a starting difficulty and how many questions you want.',
+  'Answer each question before its time runs out. Type your answer, or speak it and correct the transcript.',
+  'Each answer is marked out of 10 with notes on what you covered and what you missed. The next question is chosen from how you did.',
+  'Marks are given by an AI model and can be wrong. Treat them as practice feedback, not a verdict.',
 ]
-
-const STEPS = [
-  [26, 158],
-  [88, 150],
-  [150, 112],
-  [212, 104],
-  [274, 66],
-  [336, 52],
-]
-
-// A quiet diagram of the adaptive engine: answers move the interview through the
-// difficulty bands. Pure SVG, no images and no animation.
-function AdaptiveCurve() {
-  return (
-    <figure className="auth-visual">
-      <svg viewBox="0 0 360 200" role="img" aria-labelledby="auth-visual-title">
-        <title id="auth-visual-title">
-          Question difficulty rising from easy to hard as answers are scored
-        </title>
-        {BANDS.map((band) => (
-          <g key={band.label} className="auth-band">
-            <line x1="16" y1={band.y} x2="344" y2={band.y} />
-            <text x="16" y={band.y - 7}>{band.label}</text>
-          </g>
-        ))}
-        <polyline
-          className="auth-curve"
-          points={STEPS.map(([x, y]) => `${x},${y}`).join(' ')}
-        />
-        {STEPS.map(([x, y]) => (
-          <circle key={`${x}-${y}`} className="auth-dot" cx={x} cy={y} r="4" />
-        ))}
-      </svg>
-      <figcaption>Each answer sets the difficulty of the next question.</figcaption>
-    </figure>
-  )
-}
 
 export default function AuthShell({ children }) {
   return (
-    <div className="auth-page">
-      <aside className="auth-intro">
-        <Link to="/" className="auth-brand">
-          <img src="/favicon.svg" alt="" width="28" height="28" />
-          <span>{site.name}</span>
-        </Link>
+    <div className="auth-desk">
+      <div className="container">
+        <div className="auth-sheet">
+          <section className="cover">
+            <h1 className="cover-title">Technical interview practice paper</h1>
+            <dl className="cover-details">
+              {DETAILS.map(([term, value]) => (
+                <div key={term}>
+                  <dt>{term}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <h2 className="cover-heading">Instructions to candidates</h2>
+            <ol className="instructions">
+              {INSTRUCTIONS.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ol>
+          </section>
 
-        <div className="auth-intro-body">
-          <p className="auth-eyebrow">Adaptive technical interviews</p>
-          <h1>Prepare smarter. Perform better.</h1>
-          <p className="auth-lede">
-            Practise with an AI interviewer that scores every answer and picks the next question around
-            your strengths and gaps.
-          </p>
-          <AdaptiveCurve />
-          <ul className="auth-points">
-            {POINTS.map((point) => (
-              <li key={point}>
-                <Check size={16} strokeWidth={2.5} aria-hidden="true" />
-                <span>{point}</span>
-              </li>
-            ))}
-          </ul>
+          <section className="auth-panel">
+            <div className="auth-panel-inner">{children}</div>
+          </section>
         </div>
-      </aside>
-
-      <section className="auth-panel">
-        <div className="auth-panel-inner">{children}</div>
-      </section>
+      </div>
     </div>
   )
 }

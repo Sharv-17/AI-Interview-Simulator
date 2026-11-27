@@ -48,11 +48,8 @@ export default function Login() {
 
   return (
     <AuthShell>
-      <h2>Welcome back</h2>
-      <p className="auth-sub">
-        Continue your preparation with AI-powered technical interviews tailored to your skills and
-        progress.
-      </p>
+      <h2>Sign in</h2>
+      <p className="auth-sub">Use the email address and password you registered with.</p>
 
       {error && (
         <div className="alert alert-error" role="alert" tabIndex={-1} ref={alertRef}>
@@ -113,13 +110,13 @@ export default function Login() {
         </div>
 
         <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
-          {busy ? 'Signing in' : 'Sign In'}
+          {busy ? 'Signing in' : 'Sign in'}
         </button>
       </form>
 
       <div className="auth-divider">or</div>
 
-      <Link to="/guest" className="btn btn-secondary btn-block">Continue as Guest</Link>
+      <Link to="/guest" className="btn btn-secondary btn-block">Continue as guest</Link>
       <p className="auth-guest-note muted small">
         Guest interviews stay on this device and need no account.
       </p>

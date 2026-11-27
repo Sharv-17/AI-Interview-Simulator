@@ -78,7 +78,7 @@ export default function Report() {
         <div>
           <h1>Interview report</h1>
           <p className="muted">
-            {interview.topic} &middot; {DIFFICULTY_LABELS[interview.difficulty] || interview.difficulty} start &middot;{' '}
+            {interview.topic}, starting at {(DIFFICULTY_LABELS[interview.difficulty] || interview.difficulty).toLowerCase()} difficulty, on{' '}
             {formatDateTime(interview.created_at)}
           </p>
         </div>
@@ -145,9 +145,10 @@ export default function Report() {
         {questions.map((q) => {
           const a = answersByQuestion[q.question_id]
           return (
-            <article key={q.question_id} className="qa">
+            <article key={q.question_id} className="qa margined">
+              <span className="margin-number" aria-hidden="true">{q.sequence}.</span>
               <p className="question-meta">
-                <span className="tag">Question {q.sequence}</span>
+                <span className="visually-hidden">Question {q.sequence}</span>
                 {q.question_type && <span className="tag">{QUESTION_TYPE_LABELS[q.question_type] || q.question_type}</span>}
                 {q.difficulty && <span className="tag">{DIFFICULTY_LABELS[q.difficulty] || q.difficulty}</span>}
               </p>
@@ -160,7 +161,7 @@ export default function Report() {
                   <h4>Your answer</h4>
                   <p className="answer-text">{a.answer_text}</p>
                   <p className="muted small">
-                    {a.answer_source === 'voice' ? 'Spoken, then edited' : 'Typed'} &middot; took {formatSeconds(a.elapsed_seconds)} of{' '}
+                    {a.answer_source === 'voice' ? 'Spoken, then edited' : 'Typed'}. Took {formatSeconds(a.elapsed_seconds)} of{' '}
                     {formatSeconds(a.time_limit_seconds)}
                     {a.timed_out && ' (sent during the extra time)'}
                   </p>

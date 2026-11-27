@@ -74,7 +74,7 @@ export default function Register() {
     <AuthShell>
       <h2>Create your account</h2>
       <p className="auth-sub">
-        Keep your interview history and progress together, and pick up where you left off.
+        Your interviews, reports and progress are saved to your account, so you can come back to them.
       </p>
 
       {error && (
@@ -190,7 +190,7 @@ export default function Register() {
 
       <div className="auth-divider">or</div>
 
-      <Link to="/guest" className="btn btn-secondary btn-block">Continue as Guest</Link>
+      <Link to="/guest" className="btn btn-secondary btn-block">Continue as guest</Link>
       <p className="auth-guest-note muted small">
         Guest interviews stay on this device and need no account.
       </p>

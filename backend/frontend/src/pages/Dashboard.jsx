@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client.js'
 import usePageTitle from '../hooks/usePageTitle.js'
 import { DIFFICULTY_LABELS, formatDateTime } from '../lib/format.js'
@@ -9,12 +9,10 @@ const STATUS_LABELS = { active: 'In progress', completed: 'Completed' }
 
 export default function Dashboard() {
   usePageTitle('Dashboard')
-  const navigate = useNavigate()
-  const { user, candidate, signOut } = useSession()
+  const { user, candidate } = useSession()
   const [interviews, setInterviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [signingOut, setSigningOut] = useState(false)
   const [history, setHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(true)
   const [historyError, setHistoryError] = useState('')
@@ -62,12 +60,6 @@ export default function Dashboard() {
     }
   }, [candidate?.candidate_id])
 
-  async function handleSignOut() {
-    setSigningOut(true)
-    await signOut()
-    navigate('/', { replace: true })
-  }
-
   const name = candidate?.display_name || 'Not set'
 
   // The backend keeps competency state per interview and starts every area at 0.50, so a
@@ -100,166 +92,165 @@ export default function Dashboard() {
     .sort((a, b) => a.competency_id.localeCompare(b.competency_id))
   const scoredAnswers = history.length
 
+  const completed = interviews.filter((item) => item.status === 'completed').length
+  const inProgress = interviews.filter((item) => item.status === 'active').length
+
   return (
     <div className="container section dashboard">
-      <div className="section-head">
-        <div>
+      <header className="dash-head">
+        <div className="dash-identity">
           <h1>Dashboard</h1>
-          <p className="muted">
-            Signed in as {name}. Your interviews are saved to this account.
+          <p className="dash-account">
+            <span className="dash-name">{name}</span>
+            {user?.email && <span className="dash-email">{user.email}</span>}
           </p>
         </div>
-        <div className="dashboard-actions">
-          <Link to="/start" className="btn btn-primary">Start an interview</Link>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={handleSignOut}
-            disabled={signingOut}
-          >
-            {signingOut ? 'Signing out' : 'Sign out'}
-          </button>
-        </div>
-      </div>
+        <Link to="/start" className="btn btn-primary">Start an interview</Link>
+      </header>
 
-      <dl className="summary">
+      <dl className="stats" aria-busy={loading || historyLoading}>
         <div>
-          <dt>Name</dt>
-          <dd>{name}</dd>
+          <dt>Interviews started</dt>
+          <dd>{loading ? '-' : interviews.length}</dd>
         </div>
         <div>
-          <dt>Email</dt>
-          <dd>{user?.email || ''}</dd>
+          <dt>Completed</dt>
+          <dd>{loading ? '-' : completed}</dd>
         </div>
         <div>
-          <dt>Email verified</dt>
-          <dd>{user?.is_email_verified ? 'Yes' : 'Not yet'}</dd>
+          <dt>In progress</dt>
+          <dd>{loading ? '-' : inProgress}</dd>
         </div>
         <div>
-          <dt>Interviews</dt>
-          <dd>{loading ? 'Loading' : interviews.length}</dd>
+          <dt>Answers scored</dt>
+          <dd>{historyLoading && !historyError ? '-' : scoredAnswers}</dd>
         </div>
       </dl>
 
-      <section className="dashboard-section">
-        <h2>Previous interviews</h2>
+      <section className="panel" aria-labelledby="interviews-heading">
+        <div className="panel-head">
+          <h2 id="interviews-heading">Your interviews</h2>
+        </div>
 
-        {error && (
-          <div className="alert alert-error" role="alert">{error}</div>
-        )}
-
+        {error && <div className="alert alert-error" role="alert">{error}</div>}
         {!error && loading && <p className="muted">Loading your interviews</p>}
 
         {!error && !loading && interviews.length === 0 && (
-          <p className="muted">
-            No interviews yet. <Link to="/start">Start your first one</Link>.
-          </p>
+          <div className="empty-state">
+            <p>You have not started an interview yet. Your interviews and reports will be listed here.</p>
+            <Link to="/start" className="btn btn-secondary">Start your first interview</Link>
+          </div>
         )}
 
         {!error && interviews.length > 0 && (
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Started</th>
-                <th scope="col">Topic</th>
-                <th scope="col">Difficulty</th>
-                <th scope="col">Questions</th>
-                <th scope="col">Status</th>
-                <th scope="col"><span className="visually-hidden">Links</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {interviews.map((interview) => (
-                <tr key={interview.interview_id}>
-                  <td>{formatDateTime(interview.created_at)}</td>
-                  <td>{interview.topic}</td>
-                  <td>{DIFFICULTY_LABELS[interview.difficulty] || interview.difficulty}</td>
-                  <td>{interview.current_question} of {interview.question_count}</td>
-                  <td>{STATUS_LABELS[interview.status] || interview.status}</td>
-                  <td className="table-links">
-                    {interview.status === 'active' && (
-                      <Link to={`/interview/${interview.interview_id}`}>Continue</Link>
-                    )}
-                    <Link to={`/report/${interview.interview_id}`}>Report</Link>
-                  </td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Started</th>
+                  <th scope="col">Topic</th>
+                  <th scope="col">Difficulty</th>
+                  <th scope="col">Question</th>
+                  <th scope="col">Status</th>
+                  <th scope="col"><span className="visually-hidden">Links</span></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {interviews.map((interview) => (
+                  <tr key={interview.interview_id}>
+                    <td className="nowrap">{formatDateTime(interview.created_at)}</td>
+                    <td>{interview.topic}</td>
+                    <td>{DIFFICULTY_LABELS[interview.difficulty] || interview.difficulty}</td>
+                    <td className="nowrap">{interview.current_question} of {interview.question_count}</td>
+                    <td>
+                      <span className={`status status-${interview.status}`}>
+                        {STATUS_LABELS[interview.status] || interview.status}
+                      </span>
+                    </td>
+                    <td className="table-links">
+                      {interview.status === 'active' && (
+                        <Link to={`/interview/${interview.interview_id}`}>Continue</Link>
+                      )}
+                      <Link to={`/report/${interview.interview_id}`}>Report</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
-      <section className="dashboard-section">
-        <h2>Progress</h2>
-        <p className="muted small">
-          Estimates, not a verdict on your ability: each area is scored from 0 to 1. Every interview starts an
-          area at 0.50 and moves 15% of the way toward each answer&apos;s score, so these estimates belong to a
-          single interview and do not carry over between interviews. The level shown is from your most recent
-          interview that covered the area, and the change is the movement inside that interview.
-        </p>
+      <section className="panel" aria-labelledby="progress-heading">
+        <div className="panel-head">
+          <h2 id="progress-heading">Progress by area</h2>
+          <p className="muted small">
+            Your estimated level in each area, from 0 to 1, taken from the most recent interview that covered it.
+          </p>
+        </div>
 
         {historyError && (
           <div className="alert alert-error" role="alert">
             Could not load your progress: {historyError}
           </div>
         )}
-
         {!historyError && historyLoading && <p className="muted">Loading your progress</p>}
 
         {!historyError && !historyLoading && progress.length === 0 && (
-          <p className="muted">
-            Nothing scored yet. <Link to="/start">Start an interview</Link> and your estimated levels will appear
-            here.
-          </p>
+          <div className="empty-state">
+            <p>Nothing scored yet. Finish a few questions and your estimated level in each area will appear here.</p>
+          </div>
         )}
 
         {!historyError && !historyLoading && progress.length > 0 && (
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Area</th>
-                <th scope="col">Latest estimated level</th>
-                <th scope="col">Answers scored</th>
-                <th scope="col">Change in that interview</th>
-              </tr>
-            </thead>
-            <tbody>
-              {progress.map((area) => (
-                <tr key={area.competency_id}>
-                  <td>{area.competency_id}</td>
-                  <td>
-                    <span className="meter meter-inline" aria-hidden="true">
-                      <span className="meter-fill" style={{ width: `${area.theta * 100}%` }} />
-                    </span>
-                    {area.theta.toFixed(2)}
-                  </td>
-                  <td>{area.answers}</td>
-                  <td>
-                    {area.change === null ? (
-                      <span title="At least two scored answers in one interview are needed to show movement.">
-                        —
-                      </span>
-                    ) : (
-                      `${area.change >= 0 ? '+' : ''}${area.change.toFixed(2)}`
-                    )}
-                  </td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Area</th>
+                  <th scope="col">Estimated level</th>
+                  <th scope="col">Answers scored</th>
+                  <th scope="col">Change in that interview</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {progress.map((area) => (
+                  <tr key={area.competency_id}>
+                    <td>{area.competency_id}</td>
+                    <td className="nowrap">
+                      <span className="meter meter-inline" aria-hidden="true">
+                        <span className="meter-fill" style={{ width: `${area.theta * 100}%` }} />
+                      </span>
+                      {area.theta.toFixed(2)}
+                    </td>
+                    <td>{area.answers}</td>
+                    <td>
+                      {area.change === null ? (
+                        <span className="muted small">Needs 2 or more answers</span>
+                      ) : (
+                        `${area.change >= 0 ? '+' : ''}${area.change.toFixed(2)}`
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        {!historyError && scoredAnswers > 0 && (
-          <p className="muted small">
-            {scoredAnswers === 1
-              ? '1 scored answer so far. One answer is not a trend, so no change is shown yet.'
-              : `${scoredAnswers} scored answers across your interviews so far.`}
+        <details className="explainer">
+          <summary>How is this estimated?</summary>
+          <p>
+            Each interview starts every area at 0.50. After each scored answer, the estimate moves 15% of the way
+            toward that answer&apos;s score. Estimates are kept per interview and do not carry over between
+            interviews, so the change column shows movement inside the most recent interview only. These are rough
+            estimates, not a verdict on your ability.
           </p>
-        )}
+        </details>
       </section>
 
       <p className="muted small">
-        Guest interviews started from this device are not listed here. They stay in your browser on the{' '}
+        Guest interviews started on this device are not saved to your account. You can find them on the{' '}
         <Link to="/guest">guest page</Link>.
       </p>
     </div>

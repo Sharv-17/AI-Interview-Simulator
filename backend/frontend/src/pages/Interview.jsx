@@ -314,8 +314,8 @@ export default function Interview() {
     <div className="container narrow section interview">
       <div className="interview-bar">
         <p className="progress-text">
-          Question {interview.current_question} of {interview.question_count}
-          <span className="muted"> &middot; {interview.topic}</span>
+          <span className="muted">{interview.topic}:</span> question {interview.current_question} of{' '}
+          {interview.question_count}
         </p>
         {answering && nominalLeft !== null && (
           <div className={`timer ${nominalLeft <= 15 ? 'timer-warn' : ''} ${inGrace ? 'timer-over' : ''}`} role="timer" aria-live="off">
@@ -334,7 +334,8 @@ export default function Interview() {
         <span style={{ width: `${((interview.current_question - 1) / interview.question_count) * 100}%` }} />
       </div>
 
-      <section className="question-card" aria-labelledby="question-text">
+      <section className="question-card margined" aria-labelledby="question-text">
+        <span className="margin-number" aria-hidden="true">{interview.current_question}.</span>
         <p className="question-meta">
           <span className="tag">{QUESTION_TYPE_LABELS[question.question_type] || question.question_type}</span>
           <span className="tag">{DIFFICULTY_LABELS[question.difficulty] || question.difficulty}</span>
@@ -385,7 +386,7 @@ export default function Interview() {
             />
             <p className="field-help">
               {answer.length.toLocaleString()} / {MAX_ANSWER_CHARS.toLocaleString()} characters
-              {usedVoice && ' · includes a voice transcript, check it before submitting'}
+              {usedVoice && '. Includes a voice transcript, so check it before submitting.'}
             </p>
           </div>
 
