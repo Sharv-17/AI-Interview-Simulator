@@ -79,14 +79,36 @@ export default function SessionProvider({ children }) {
     [fetchAccount, apply],
   )
 
+  // Resolves to the account when the session is still alive, or null when signed out.
+  //
+  // The cookie is HttpOnly, so only the server can end the session. If the logout call
+  // fails (for example a CSRF rejection from a proxy that rewrote the Host header), the
+  // session survives: reporting "signed out" here would be undone by the next reload,
+  // which is exactly the confusing state this guards against.
   const signOut = useCallback(async () => {
+    let failure = null
     try {
       await api.auth.logout()
-    } catch {
-      // The cookie may already be gone (expired session). Either way, drop local state.
+    } catch (err) {
+      failure = err
     }
+
+    let account = null
+    try {
+      account = await fetchAccount()
+    } catch {
+      // 401 or unreachable: neither keeps a session alive.
+    }
+
+    if (account) {
+      apply(account)
+      return { user: account.me, error: failure }
+    }
+
+    // 401 (or an unreachable server): the cookie is gone or unusable, so drop state.
     clear('')
-  }, [clear])
+    return { user: null, error: null }
+  }, [fetchAccount, apply, clear])
 
   const value = useMemo(
     () => ({ user, candidate, loading, error, signIn, signOut, refresh }),

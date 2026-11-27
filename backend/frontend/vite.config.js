@@ -10,13 +10,17 @@ export default defineConfig({
     proxy: {
       // Account routes live under /api/v1/* on the backend and must keep that prefix.
       // Object order decides which prefix matches first, so this rule comes before /api.
+      // changeOrigin must stay false: the backend's CSRF check compares the request
+      // `Origin` with the request `Host`. Rewriting Host to :8000 makes a same-origin
+      // sign-out look cross-site, so it is rejected with 403, the session is never
+      // revoked, and the next reload signs the user back in.
       '/api/v1': {
         target: 'http://localhost:8000',
-        changeOrigin: true,
+        changeOrigin: false,
       },
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true,
+        changeOrigin: false,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },

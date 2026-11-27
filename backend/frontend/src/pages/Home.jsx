@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { FileText, Gauge, ListChecks, Timer } from 'lucide-react'
+import { Check, FileText, Gauge, ListChecks, Timer } from 'lucide-react'
 import { api } from '../api/client.js'
 import { DIFFICULTY_LABELS, formatDateTime } from '../lib/format.js'
 import usePageTitle from '../hooks/usePageTitle.js'
@@ -50,16 +50,55 @@ export default function Home() {
   return (
     <>
       <section className="hero">
-        <div className="container hero-inner">
-          <h1>Practise technical interviews that adjust to your answers.</h1>
-          <p className="lead">
-            Answer software engineering questions against a timer, by typing or speaking. Each answer is scored
-            with written feedback, and the next question depends on how well you did.
-          </p>
-          <div className="actions">
-            <Link to="/start" className="btn btn-primary">Start an interview</Link>
+        <div className="container hero-grid">
+          <div className="hero-copy">
+            <p className="eyebrow">Technical interview practice</p>
+            <h1>Practise technical interviews that adjust to your answers.</h1>
+            <p className="lead">
+              Answer software engineering questions against a timer, by typing or speaking. Each answer is scored
+              with written feedback, and the next question depends on how well you did.
+            </p>
+            <div className="actions">
+              <Link to="/start" className="btn btn-primary">Start an interview</Link>
+              <Link to="/register" className="btn btn-secondary">Create an account</Link>
+            </div>
+            <p className="muted small">No account needed. Scores come from an AI model and can be wrong.</p>
           </div>
-          <p className="muted small">No account needed. Scores come from an AI model and can be wrong.</p>
+
+          {/* Decorative preview of an answer sheet: no real scores or results. */}
+          <div className="hero-visual" aria-hidden="true">
+            <div className="hero-glow" />
+            <div className="hero-card">
+              <div className="hero-card-head">
+                <span className="hero-chip">
+                  <Timer size={14} /> On the clock
+                </span>
+                <span className="hero-chip hero-chip-alt">Adaptive</span>
+              </div>
+              <div className="hero-skeleton">
+                <span />
+                <span />
+                <span />
+              </div>
+              <ul className="hero-criteria">
+                <li>
+                  <span>Technical accuracy</span>
+                  <i style={{ width: '88%' }} />
+                </li>
+                <li>
+                  <span>Clarity</span>
+                  <i style={{ width: '72%' }} />
+                </li>
+                <li>
+                  <span>Completeness</span>
+                  <i style={{ width: '80%' }} />
+                </li>
+              </ul>
+              <p className="hero-foot">
+                <Check size={16} /> Feedback after every answer
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 

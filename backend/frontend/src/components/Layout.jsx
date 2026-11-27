@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useSession } from '../lib/session.js'
 import { site } from '../siteConfig.js'
@@ -6,9 +7,19 @@ export default function Layout() {
   const year = new Date().getFullYear()
   const navigate = useNavigate()
   const { user, signOut } = useSession()
+  const [signOutError, setSignOutError] = useState('')
 
   async function handleSignOut() {
-    await signOut()
+    setSignOutError('')
+    const result = await signOut()
+    // The server still knows this account, so the session did not end. Say so instead
+    // of navigating away as if it had.
+    if (result?.user) {
+      setSignOutError(
+        'Could not sign you out, so you are still signed in. Please try again.',
+      )
+      return
+    }
     navigate('/', { replace: true })
   }
   return (
@@ -38,6 +49,14 @@ export default function Layout() {
           </nav>
         </div>
       </header>
+
+      {signOutError && (
+        <div className="container">
+          <div className="alert alert-error" role="alert">
+            {signOutError}
+          </div>
+        </div>
+      )}
 
       <main id="main" className="site-main">
         <Outlet />

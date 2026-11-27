@@ -81,7 +81,7 @@ export default function Start() {
   }
 
   return (
-    <div className="container narrow section">
+    <div className="container section start-page">
       <h1>Start an interview</h1>
       <p className="lead">
         The timer for the first question starts as soon as you press Start, so get ready first.
@@ -93,7 +93,8 @@ export default function Start() {
         </div>
       )}
 
-      <form className="form" onSubmit={handleSubmit} noValidate>
+      <form className="form start-form" onSubmit={handleSubmit} noValidate>
+        <div className="form-fields">
         <div className="field">
           <label htmlFor="topic">Topic</label>
           <select id="topic" value={topic} onChange={(e) => setTopic(e.target.value)} disabled={topics.length === 0}>
@@ -139,19 +140,26 @@ export default function Start() {
           <p className="field-help">From 1 to 20. Most questions take 1 to 3 minutes.</p>
         </div>
 
-        {error && (
-          <div className="alert alert-error" role="alert">{error}</div>
-        )}
-
-        <div className="actions">
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={submitting || topics.length === 0 || sessionLoading}
-          >
-            {submitting ? 'Starting' : 'Start'}
-          </button>
         </div>
+
+        <aside className="form-aside">
+          <p className="form-aside-title">Ready when you are</p>
+          {error && (
+            <div className="alert alert-error" role="alert">{error}</div>
+          )}
+          <div className="actions">
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={submitting || topics.length === 0 || sessionLoading}
+            >
+              {submitting ? 'Starting' : 'Start'}
+            </button>
+          </div>
+          <p className="form-aside-note">
+            The first question&apos;s timer starts the moment you press Start.
+          </p>
+        </aside>
       </form>
     </div>
   )

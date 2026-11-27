@@ -311,7 +311,8 @@ export default function Interview() {
   const evaluation = result?.evaluation
 
   return (
-    <div className="container narrow section interview">
+    <div className="container section interview-page">
+      <aside className="interview-rail">
       <div className="interview-bar">
         <p className="progress-text">
           <span className="muted">{interview.topic}:</span> question {interview.current_question} of{' '}
@@ -333,7 +334,9 @@ export default function Interview() {
       >
         <span style={{ width: `${((interview.current_question - 1) / interview.question_count) * 100}%` }} />
       </div>
+      </aside>
 
+      <div className="interview-main">
       <section className="question-card margined" aria-labelledby="question-text">
         <span className="margin-number" aria-hidden="true">{interview.current_question}.</span>
         <p className="question-meta">
@@ -473,6 +476,7 @@ export default function Interview() {
           </div>
         </section>
       )}
+      </div>
     </div>
   )
 }
